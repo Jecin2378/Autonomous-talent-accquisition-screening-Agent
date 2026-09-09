@@ -11,7 +11,7 @@ class RequirementType(str, Enum):
 class SkillCategory(str, Enum):
     LANGUAGES = "LANGUAGES"
     FRAMEWORKS = "FRAMEWORKS"
-    INFRASTRUCTURE = "INFRASTRUCTURE"
+    INFRASTRUCTURE ="INFRASTRUCTURE"
     DATABASE = "DATABASE"
     DOMAIN = "DOMAIN"
     OTHER = "OTHER"
