@@ -10,7 +10,7 @@ from core.evidence_ledger import EvidenceLedgerBuilder
 from core.tradeoff_analyzer import TradeoffAnalyzer
 from core.skill_normalizer import SkillNormalizer
 from core.contradiction_detector import ContradictionDetector
-from data.sample_data import get_sample_requisition
+from data.sample_data import get_sample_requisition, get_sample_candidates
 
 
 def test_1_resume_claim_supported_by_github():
@@ -235,22 +235,8 @@ EXPERIENCE:
 
 def test_10_valid_candidate_no_contradiction():
     """Test 10: Valid candidate with no contradictions."""
-    candidate = CandidateProfile(
-        id="CAND-TEST10",
-        full_name="Alex Chen",
-        email="alex@valid.io",
-        current_role="Staff MLOps Lead",
-        years_of_experience=6.0,
-        raw_resume_text="""
-Alex Chen - Staff MLOps Lead
-6 years of production machine learning experience.
-
-EXPERIENCE:
-Staff MLOps Engineer | Nexus Tech (2022 - Present)
-- Architected Kubernetes multi-region cluster (50+ nodes) serving 120M requests/day.
-- Optimized PyTorch model serving pipelines using vLLM.
-"""
-    )
+    candidates = get_sample_candidates()
+    candidate = candidates[0]
 
     req = get_sample_requisition()
     res = TradeoffAnalyzer.evaluate_candidate(req, candidate)

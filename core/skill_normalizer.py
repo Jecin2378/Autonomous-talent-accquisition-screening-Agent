@@ -71,8 +71,13 @@ class SkillNormalizer:
     @classmethod
     def are_equivalent(cls, skill_a: str, skill_b: str) -> bool:
         """Returns True if skill_a and skill_b resolve to equivalent canonical skills."""
-        norm_a = cls.normalize(skill_a).lower()
-        norm_b = cls.normalize(skill_b).lower()
+        clean_a = skill_a.strip()
+        clean_b = skill_b.strip()
+        if not clean_a or not clean_b:
+            return False
+
+        norm_a = cls.normalize(clean_a).lower()
+        norm_b = cls.normalize(clean_b).lower()
 
         pair = frozenset({norm_a, norm_b})
         if pair in cls.NON_EQUIVALENT_PAIRS:

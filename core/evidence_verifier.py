@@ -78,8 +78,8 @@ class EvidenceVerifier:
 
         for idx, line in enumerate(lines):
             lowered = line.lower()
-            # Match using SkillNormalizer.are_equivalent
-            if SkillNormalizer.are_equivalent(skill, line) or skill.lower() in lowered:
+            line_skills = SkillNormalizer.extract_canonical_skills(line)
+            if skill in line_skills or any(SkillNormalizer.are_equivalent(skill, s) for s in line_skills) or skill.lower() in lowered:
                 has_metric = bool(cls.METRIC_PATTERN.search(line))
                 
                 if has_metric:
@@ -104,7 +104,8 @@ class EvidenceVerifier:
                     )
 
         for repo in repo_links:
-            if SkillNormalizer.are_equivalent(skill, repo) or skill.lower() in repo.lower():
+            repo_skills = SkillNormalizer.extract_canonical_skills(repo)
+            if skill in repo_skills or any(SkillNormalizer.are_equivalent(skill, s) for s in repo_skills) or skill.lower() in repo.lower():
                 evidence_items.append(
                     Evidence(
                         id=f"EV-REPO-{len(evidence_items)}",
