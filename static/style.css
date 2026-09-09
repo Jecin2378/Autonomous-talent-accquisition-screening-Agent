@@ -1,0 +1,145 @@
+/* Modern Glassmorphic Dark Design System for Talent Screening Agent */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+    --bg-primary: #090d16;
+    --bg-surface: rgba(18, 26, 43, 0.75);
+    --bg-surface-hover: rgba(30, 41, 68, 0.85);
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-accent: rgba(99, 102, 241, 0.4);
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --color-emerald: #10b981;
+    --color-cyan: #06b6d4;
+    --color-indigo: #6366f1;
+    --color-amber: #f59e0b;
+    --color-rose: #f43f5e;
+    --color-violet: #8b5cf6;
+}
+
+body, .stApp {
+    font-family: 'Outfit', sans-serif !important;
+    background: radial-gradient(circle at 10% 20%, #111827 0%, #080c14 90%) !important;
+    color: var(--text-primary) !important;
+}
+
+/* Glassmorphism Containers */
+.glass-panel {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 16px;
+    padding: 20px 24px;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+    transition: all 0.3s ease;
+    margin-bottom: 20px;
+}
+
+.glass-panel:hover {
+    border-color: var(--border-accent);
+    box-shadow: 0 14px 40px -8px rgba(99, 102, 241, 0.15);
+}
+
+/* Header Gradient */
+.hero-title {
+    font-size: 2.4rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 6px;
+}
+
+.hero-subtitle {
+    font-size: 1.05rem;
+    color: var(--text-secondary);
+    margin-bottom: 24px;
+}
+
+/* Stat KPI Cards */
+.kpi-card {
+    background: rgba(15, 23, 42, 0.65);
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+    padding: 16px 20px;
+    text-align: left;
+    backdrop-filter: blur(12px);
+}
+
+.kpi-num {
+    font-size: 1.9rem;
+    font-weight: 700;
+    color: #f1f5f9;
+    letter-spacing: -0.5px;
+}
+
+.kpi-label {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+/* Status Badges */
+.badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.badge-pass { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+.badge-fail { background: rgba(244, 63, 94, 0.15); color: #fb7185; border: 1px solid rgba(244, 63, 94, 0.3); }
+.badge-unsupported { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+.badge-contradictory { background: rgba(217, 70, 239, 0.15); color: #f472b6; border: 1px solid rgba(217, 70, 239, 0.3); }
+.badge-unknown { background: rgba(100, 116, 139, 0.15); color: #94a3b8; border: 1px solid rgba(100, 116, 139, 0.3); }
+.badge-partial { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+
+/* Score Gauge Pill */
+.score-pill {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(168, 85, 247, 0.2));
+    border: 1px solid rgba(168, 85, 247, 0.4);
+    color: #e9d5ff;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+/* Verdict Alerts */
+.verdict-box-red {
+    background: linear-gradient(90deg, rgba(136, 19, 55, 0.3) 0%, rgba(30, 41, 59, 0.5) 100%);
+    border-left: 4px solid #f43f5e;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 16px 0;
+}
+
+.verdict-box-green {
+    background: linear-gradient(90deg, rgba(6, 78, 59, 0.3) 0%, rgba(30, 41, 59, 0.5) 100%);
+    border-left: 4px solid #10b981;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 16px 0;
+}
+
+/* Candidate Card */
+.cand-card {
+    background: rgba(17, 24, 39, 0.7);
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+    padding: 18px 22px;
+    margin-bottom: 16px;
+    transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.cand-card:hover {
+    border-color: rgba(99, 102, 241, 0.5);
+    transform: translateY(-2px);
+}

@@ -25,6 +25,28 @@ class DocumentParser:
                 return f.read()
 
     @staticmethod
+    def extract_text_from_bytes(content: bytes, filename: str) -> str:
+        """Extract text from in-memory file bytes (PDF or TXT)."""
+        ext = os.path.splitext(filename)[1].lower()
+        if ext == ".pdf":
+            if pypdf is not None:
+                import io
+                try:
+                    reader = pypdf.PdfReader(io.BytesIO(content))
+                    text = ""
+                    for page in reader.pages:
+                        extracted = page.extract_text()
+                        if extracted:
+                            text += extracted + "\n"
+                    if text.strip():
+                        return text
+                except Exception:
+                    pass
+            return re.sub(rb'[^\x20-\x7E\n\r\t]', b' ', content).decode('ascii', errors='ignore')
+        else:
+            return content.decode("utf-8", errors="ignore")
+
+    @staticmethod
     def _parse_pdf(file_path: str) -> str:
         text = ""
         if pypdf is not None:

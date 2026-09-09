@@ -1,186 +1,453 @@
 """
 Streamlit Web Dashboard for Autonomous Talent Acquisition Screening Agent.
-Features:
-- Candidate Evaluation & Evidence Verification
-- Requisition Conflict & Trade-Off Analysis
-- Candidate Requirement Matrix
-- Pool Coverage & Restrictive Intersection Metrics
-- Full Satisfaction Checker & Closest-Fit Shortlist
+Evaluation 4: Recruiter Dashboard with Glassmorphism Interface.
 """
 
+import json
+import os
 import streamlit as st
 import pandas as pd
+from typing import List
+
 from models.schemas import (
-    JobRequisition, CandidateProfile, RequirementStatus, RequirementType,
-    ConflictSeverity, EvidenceType
+    JobRequisition, Requirement, CandidateProfile, RequirementType,
+    SkillCategory, ConstraintType, RequirementStatus, ConflictSeverity
 )
 from core.llm_engine import ScreeningAgentEngine
 from core.requirement_analyzer import RequirementAnalyzer
+from core.evidence_ledger import EvidenceLedgerBuilder
+from parsers.document_parser import DocumentParser
 from data.sample_data import get_sample_requisition, get_sample_candidates
 
 
+# Page Config
 st.set_page_config(
-    page_title="AI Talent Screening & Requisition Conflict Agent",
+    page_title="Autonomous Talent Screening Agent | Recruiter Dashboard",
     page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom Glassmorphic Styling
-st.markdown("""
-<style>
-    .main {
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-        color: #f8fafc;
-    }
-    .metric-card {
-        background: rgba(30, 41, 59, 0.7);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 12px;
-        backdrop-filter: blur(10px);
-    }
-    .badge-pass { background-color: #065f46; color: #34d399; padding: 4px 8px; border-radius: 6px; font-weight: bold; }
-    .badge-fail { background-color: #7f1d1d; color: #f87171; padding: 4px 8px; border-radius: 6px; font-weight: bold; }
-    .badge-unsupported { background-color: #78350f; color: #fbbf24; padding: 4px 8px; border-radius: 6px; font-weight: bold; }
-    .badge-contradictory { background-color: #831843; color: #f472b6; padding: 4px 8px; border-radius: 6px; font-weight: bold; }
-    .badge-unknown { background-color: #374151; color: #9ca3af; padding: 4px 8px; border-radius: 6px; font-weight: bold; }
-    .badge-partial { background-color: #1e3a8a; color: #60a5fa; padding: 4px 8px; border-radius: 6px; font-weight: bold; }
-</style>
-""", unsafe_allow_html=True)
+# Load External Stylesheet
+css_path = os.path.join(os.path.dirname(__file__), "static", "style.css")
+if os.path.exists(css_path):
+    with open(css_path, "r", encoding="utf-8") as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-# App Header
-st.title("🤖 Autonomous Talent-Acquisition Screening Agent")
-st.caption("Evidence-Grounded Screening, Requisition Conflict Detection & Closest-Fit Trade-Off Shortlisting")
+# Custom Helper Functions
+def get_conflict_requisition() -> JobRequisition:
+    """Returns sample requisition containing realistic requirement conflicts."""
+    return JobRequisition(
+        id="REQ-CONFLICT-DEMO",
+        title="Junior AI Platform Associate",
+        department="AI Infrastructure",
+        experience_level="Junior-Level",
+        max_salary=7.5,
+        salary_currency="LPA",
+        requirements=[
+            Requirement(
+                id="RC-1",
+                title="Software Experience",
+                description="5+ years software development experience required",
+                category=SkillCategory.OTHER,
+                min_years=5.0,
+                type=RequirementType.MUST_HAVE,
+                constraint_type=ConstraintType.NUMERIC_MIN
+            ),
+            Requirement(
+                id="RC-2",
+                title="Kubernetes",
+                description="Production K8s cluster administration",
+                category=SkillCategory.INFRASTRUCTURE,
+                min_years=3.0,
+                type=RequirementType.MUST_HAVE
+            ),
+            Requirement(
+                id="RC-3",
+                title="Python Programming",
+                description="Python async services",
+                category=SkillCategory.LANGUAGES,
+                min_years=3.0,
+                type=RequirementType.MUST_HAVE
+            ),
+            Requirement(
+                id="RC-4",
+                title="Salary Alignment",
+                description="Salary ceiling <= 7.5 LPA",
+                category=SkillCategory.OTHER,
+                type=RequirementType.MUST_HAVE,
+                constraint_type=ConstraintType.NUMERIC_MAX,
+                target_value=7.5
+            ),
+            Requirement(
+                id="RC-5",
+                title="AWS",
+                description="AWS infrastructure preferred",
+                category=SkillCategory.INFRASTRUCTURE,
+                type=RequirementType.PREFERRED
+            )
+        ],
+        raw_description="Junior-level position seeking talent with 5+ years experience and K8s expertise under ₹7.5 LPA."
+    )
 
-# Sidebar - Settings & Data Loading
+
+# Sidebar Configuration
 with st.sidebar:
-    st.header("⚙️ Configuration")
-    st.info("Demonstrating offline evidence verification & multi-dimensional screening.")
-    sample_req = get_sample_requisition()
-    sample_candidates = get_sample_candidates()
+    st.markdown("## ⚙️ Control Panel")
+    st.caption("Configure screening rules, active job requisition, and data sources.")
     
-    st.subheader("Job Requisition")
-    st.write(f"**Title**: {sample_req.title}")
-    st.write(f"**Department**: {sample_req.department}")
-    st.write(f"**Level**: {sample_req.experience_level}")
-    st.write(f"**Must-Haves**: {len([r for r in sample_req.requirements if r.type == RequirementType.MUST_HAVE])}")
-    st.write(f"**Preferred**: {len([r for r in sample_req.requirements if r.type == RequirementType.PREFERRED])}")
+    req_choice = st.selectbox(
+        "Active Job Requisition",
+        options=[
+            "Senior AI Platform & MLOps Engineer (Standard)",
+            "Junior AI Associate (With Internal Conflicts)"
+        ],
+        index=0
+    )
 
-# Engine Execution
+    if req_choice.startswith("Senior"):
+        active_req = get_sample_requisition()
+    else:
+        active_req = get_conflict_requisition()
+
+    st.markdown("---")
+    st.markdown("### 📋 Requisition Summary")
+    st.markdown(f"**Title**: `{active_req.title}`")
+    st.markdown(f"**Department**: `{active_req.department}`")
+    st.markdown(f"**Level**: `{active_req.experience_level}`")
+    if active_req.max_salary:
+        st.markdown(f"**Salary Cap**: `₹{active_req.max_salary} {active_req.salary_currency}`")
+
+    must_haves = [r for r in active_req.requirements if r.type == RequirementType.MUST_HAVE]
+    preferreds = [r for r in active_req.requirements if r.type == RequirementType.PREFERRED]
+    st.markdown(f"**Must-Haves**: `{len(must_haves)}` | **Preferred**: `{len(preferreds)}`")
+
+    st.markdown("---")
+    st.markdown("### 🔍 Filter Shortlist")
+    search_query = st.text_input("Search Candidate Name / Skill", "")
+    filter_mode = st.radio("Segment Filter", ["All Candidates", "Closest Fit Candidates", "Has Contradictions", "Spam Penalized"], index=0)
+
+# Initialize Engine
 engine = ScreeningAgentEngine()
-report = engine.analyze_requisition_and_shortlist(sample_req, sample_candidates)
-results = engine.evaluate_batch(sample_req, sample_candidates)
 
-# Section 1: Executive Overview & Requisition Satisfaction
-st.markdown("---")
-st.header("📋 Requisition Analysis & Satisfaction Status")
+# Initialize or Retrieve Candidates in Session
+if "candidate_pool" not in st.session_state:
+    st.session_state.candidate_pool = get_sample_candidates()
 
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.metric("Candidates Evaluated", len(sample_candidates))
-with col2:
-    st.metric("Conflicts Detected", len(report.conflicts_detected))
-with col3:
+candidates: List[CandidateProfile] = st.session_state.candidate_pool
+
+# Run Full Requisition Conflict & Shortlist Analysis
+report = engine.analyze_requisition_and_shortlist(active_req, candidates)
+eval_results = engine.evaluate_batch(active_req, candidates)
+
+# Header Section
+st.markdown('<div class="hero-title">🤖 Autonomous Talent-Acquisition Screening Agent</div>', unsafe_allow_html=True)
+st.markdown('<div class="hero-subtitle">Evidence-First Verification • Requisition Conflict Detection • Closest-Fit Trade-Off Shortlisting</div>', unsafe_allow_html=True)
+
+# Top KPI Summary Cards
+kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
+with kpi_col1:
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-label">Candidates Evaluated</div>
+        <div class="kpi-num">{len(candidates)}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with kpi_col2:
     full_sat_count = sum(1 for m in report.matrix_rows if m.satisfies_all_required)
-    st.metric("Full Must-Have Matches", f"{full_sat_count}/{len(sample_candidates)}")
-with col4:
-    st.metric("Applicant Pool Health", "Shortage Identified" if not report.has_full_satisfaction else "Fully Satisfied")
+    color_class = "badge-pass" if full_sat_count > 0 else "badge-fail"
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-label">Full Must-Have Matches</div>
+        <div class="kpi-num">{full_sat_count} <span class="badge {color_class}">{full_sat_count}/{len(candidates)}</span></div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# Satisfaction Verdict Alert Box
+with kpi_col3:
+    conflict_count = len(report.conflicts_detected)
+    badge_color = "badge-contradictory" if conflict_count > 0 else "badge-pass"
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-label">Requisition Conflicts</div>
+        <div class="kpi-num">{conflict_count} <span class="badge {badge_color}">{'Detected' if conflict_count > 0 else 'Clean'}</span></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with kpi_col4:
+    avg_evidence = round(sum(r.score.evidence_density_score for r in eval_results) / max(len(eval_results), 1), 1)
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-label">Avg Evidence Density</div>
+        <div class="kpi-num">{avg_evidence}%</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# Requisition Satisfaction Alert Banner
+st.markdown("<br>", unsafe_allow_html=True)
 if report.has_full_satisfaction:
-    st.success(f"✅ {report.satisfaction_verdict}")
+    st.markdown(f"""
+    <div class="verdict-box-green">
+        <h4 style="margin:0; color:#34d399;">✅ Full Requirement Satisfaction Achieved</h4>
+        <p style="margin:4px 0 0 0; color:#e2e8f0;">{report.satisfaction_verdict}</p>
+    </div>
+    """, unsafe_allow_html=True)
 else:
-    st.error(f"⚠️ **{report.satisfaction_verdict.split('.')[0]}.**\n\n{report.satisfaction_verdict}")
+    st.markdown(f"""
+    <div class="verdict-box-red">
+        <h4 style="margin:0; color:#fb7185;">⚠️ No candidate fully satisfies all required criteria.</h4>
+        <p style="margin:4px 0 0 0; color:#e2e8f0;">{report.satisfaction_verdict.replace('No candidate fully satisfies all required criteria.', '').strip()}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-# Section 2: Requisition Conflicts (Surprise Challenge Core)
-st.markdown("---")
-st.subheader("⚠️ Detected Requisition Conflicts")
+# Requisition Conflicts Alert Section
 if report.conflicts_detected:
-    for conflict in report.conflicts_detected:
-        with st.expander(f"🚨 {conflict.severity.value}: {conflict.title}", expanded=True):
-            st.markdown(f"**Conflicting Criteria**: {', '.join(conflict.conflicting_requirements)}")
-            st.markdown(f"**Evidence-Based Reason**: {conflict.reason}")
-else:
-    st.info("No internal requisition conflicts detected for this requisition.")
+    with st.expander("🚨 View Detected Internal Requisition Conflicts", expanded=True):
+        for conf in report.conflicts_detected:
+            st.markdown(f"**{conf.severity.value}**: `{conf.title}`")
+            st.markdown(f"- **Conflicting Elements**: {', '.join(conf.conflicting_requirements)}")
+            st.markdown(f"- **Evidence-Based Rationale**: *{conf.reason}*")
+            st.divider()
 
-# Section 3: Requirement Coverage & Restrictive Intersections
-st.markdown("---")
-st.subheader("📊 Requirement Coverage & Intersection Analysis")
+# Main Interactive Tabs
+tab_shortlist, tab_matrix, tab_coverage, tab_ledger, tab_upload = st.tabs([
+    "🏆 Closest-Fit Shortlist",
+    "🧩 Candidate Matrix",
+    "📊 Coverage & Pool Gaps",
+    "🚨 Evidence & Contradiction Ledger",
+    "📄 Live Resume Parser"
+])
 
-tab1, tab2 = st.tabs(["Individual Criteria Coverage", "Intersection & Combination Analysis"])
+# -------------------------------------------------------------
+# TAB 1: CLOSEST-FIT SHORTLIST & TRADE-OFFS
+# -------------------------------------------------------------
+with tab_shortlist:
+    st.markdown("### 🏆 Candidate Shortlist & Trade-Off Analysis")
+    st.caption("Candidates evaluated along multiple dimensions: required criteria met, trade-off severity, and evidence confidence.")
 
-with tab1:
-    cov_data = []
-    for c in report.coverage_items:
-        cov_data.append({
-            "Requirement": c.title,
-            "Type": "MUST HAVE" if c.is_required else "PREFERRED",
-            "Candidates Meeting": f"{c.satisfied_count} / {c.total_candidates}",
-            "Coverage %": f"{c.coverage_pct}%",
-            "Status": c.status
-        })
-    st.dataframe(pd.DataFrame(cov_data), use_container_width=True)
+    # Filter shortlist
+    filtered_shortlist = report.shortlist
+    if search_query:
+        filtered_shortlist = [c for c in filtered_shortlist if search_query.lower() in c.candidate_name.lower()]
+    
+    if filter_mode == "Closest Fit Candidates":
+        filtered_shortlist = [c for c in filtered_shortlist if c.required_criteria_met >= max(1, c.required_criteria_total - 1)]
+    elif filter_mode == "Has Contradictions":
+        filtered_shortlist = [c for c in filtered_shortlist if len(c.contradictions) > 0]
+    elif filter_mode == "Spam Penalized":
+        filtered_shortlist = [c for c in filtered_shortlist if len(c.unsupported_claims) > 0]
 
-with tab2:
-    inter_data = []
-    for item in report.intersection_items:
-        inter_data.append({
-            "Combination": item.combination_name,
-            "Candidates Meeting": f"{item.satisfied_count} / {item.total_candidates}",
-            "Coverage %": f"{item.coverage_pct}%",
-            "Restrictive": "YES" if item.is_restrictive else "NO",
-            "Notes": item.notes
-        })
-    st.dataframe(pd.DataFrame(inter_data), use_container_width=True)
+    for cand in filtered_shortlist:
+        with st.container():
+            col_head, col_score = st.columns([3, 1])
+            with col_head:
+                st.markdown(f"#### #{cand.rank} {cand.candidate_name}")
+                st.markdown(f"**Assessment**: *{cand.overall_assessment}*")
+            with col_score:
+                conf_badge = "badge-pass" if cand.evidence_confidence == "High" else ("badge-unsupported" if cand.evidence_confidence == "Moderate" else "badge-contradictory")
+                st.markdown(f'<span class="badge {conf_badge}">Confidence: {cand.evidence_confidence}</span> <span class="score-pill">Score: {cand.secondary_score}/100</span>', unsafe_allow_html=True)
+                st.markdown(f"**Required**: `{cand.required_criteria_met}/{cand.required_criteria_total}` | **Preferred**: `{cand.preferred_criteria_met}/{cand.preferred_criteria_total}`")
 
-# Section 4: Candidate Requirement Matrix
-st.markdown("---")
-st.subheader("🧩 Candidate Requirement Matrix")
-st.caption("Deterministic evaluation states: PASS, PARTIAL, FAIL, UNKNOWN, UNSUPPORTED, CONTRADICTORY")
+            # Two Column Strengths vs Trade-Offs
+            col_str, col_trd = st.columns(2)
+            with col_str:
+                st.markdown("**💪 Key Strengths & Verified Criteria**")
+                for s in cand.strengths:
+                    st.markdown(f"- ✅ {s}")
+                if not cand.strengths:
+                    st.markdown("- *No verified strengths recorded.*")
 
-matrix_display = []
-for row in report.matrix_rows:
-    row_dict = {
-        "Candidate": row.candidate_name,
-        "Must-Haves Met": f"{row.required_satisfied}/{row.required_total}",
-        "Preferred Met": f"{row.preferred_satisfied}/{row.preferred_total}",
-        "Full Match": "✅ YES" if row.satisfies_all_required else "❌ NO"
+            with col_trd:
+                st.markdown("**⚖️ Trade-Offs & Gaps**")
+                for t in cand.tradeoffs:
+                    st.markdown(f"- ⚠️ {t}")
+                for u in cand.unmet_requirements:
+                    st.markdown(f"- ❌ **Unmet**: {u}")
+                for contra in cand.contradictions:
+                    st.markdown(f"- 🚨 **Contradiction**: {contra}")
+                for unsup in cand.unsupported_claims:
+                    st.markdown(f"- ⚠️ **Unverified Claim**: {unsup}")
+
+            # Expandable Evidence Drawer
+            with st.expander(f"🔍 Inspect Evidence & Proof Snippets for {cand.candidate_name}"):
+                c_prof = next((cp for cp in candidates if cp.id == cand.candidate_id), None)
+                if c_prof and c_prof.claims:
+                    for clm in c_prof.claims:
+                        v_icon = "✅" if clm.is_verified else "⚠️"
+                        st.markdown(f"**{v_icon} {clm.skill_name}** ({clm.claimed_years} yrs claimed)")
+                        if clm.verification_notes:
+                            st.caption(clm.verification_notes)
+                        for ev in clm.evidence_list:
+                            st.markdown(f"> *[{ev.type.value}]* {ev.proof_snippet} `(confidence: {ev.confidence_score})`")
+                elif c_prof:
+                    st.text(c_prof.raw_resume_text[:400] + "...")
+
+            st.divider()
+
+    # Download Shortlist Report
+    shortlist_export = {
+        "job_title": active_req.title,
+        "satisfaction_verdict": report.satisfaction_verdict,
+        "candidates": [c.model_dump() for c in report.shortlist]
     }
-    for cell in row.cell_details:
-        row_dict[cell.requirement_title] = cell.status.value
-    matrix_display.append(row_dict)
+    st.download_button(
+        label="📥 Export Shortlist Report (JSON)",
+        data=json.dumps(shortlist_export, indent=2),
+        file_name=f"shortlist_{active_req.id.lower()}.json",
+        mime="application/json"
+    )
 
-st.dataframe(pd.DataFrame(matrix_display), use_container_width=True)
+# -------------------------------------------------------------
+# TAB 2: CANDIDATE REQUIREMENT MATRIX
+# -------------------------------------------------------------
+with tab_matrix:
+    st.markdown("### 🧩 Candidate Requirement Matrix")
+    st.caption("Deterministic evaluation states: PASS, PARTIAL, FAIL, UNKNOWN, UNSUPPORTED, CONTRADICTORY.")
 
-# Section 5: Closest-Fit Shortlist & Trade-Off Analysis
-st.markdown("---")
-st.header("🏆 Closest-Fit Candidate Shortlist & Trade-Offs")
-st.caption("Candidates ranked by satisfied required criteria, trade-off severity, and evidence confidence (scores are secondary).")
+    matrix_rows_data = []
+    for row in report.matrix_rows:
+        r_dict = {
+            "Candidate": row.candidate_name,
+            "Must-Haves": f"{row.required_satisfied}/{row.required_total}",
+            "Preferred": f"{row.preferred_satisfied}/{row.preferred_total}",
+            "Full Match": "✅ YES" if row.satisfies_all_required else "❌ NO"
+        }
+        for cell in row.cell_details:
+            r_dict[cell.requirement_title] = cell.status.value
+        matrix_rows_data.append(r_dict)
 
-for cand in report.shortlist:
-    with st.container():
-        st.markdown(f"### #{cand.rank} {cand.candidate_name}")
-        st.markdown(f"**Assessment**: *{cand.overall_assessment}* | **Evidence Confidence**: **{cand.evidence_confidence}** | **Secondary Match Score**: {cand.secondary_score}/100")
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("#### 💪 Key Strengths & Verified Criteria")
-            for s in cand.strengths:
-                st.markdown(f"- {s}")
-            if cand.preferred_criteria_met > 0:
-                st.markdown(f"- *Meets {cand.preferred_criteria_met}/{cand.preferred_criteria_total} preferred criteria.*")
-        
-        with c2:
-            st.markdown("#### ⚖️ Trade-Offs & Unmet Criteria")
-            for t in cand.tradeoffs:
-                st.markdown(f"- {t}")
-            for u in cand.unmet_requirements:
-                st.markdown(f"- ❌ **Unmet**: {u}")
-            for contra in cand.contradictions:
-                st.markdown(f"- 🚨 **Contradiction**: {contra}")
-            for unsup in cand.unsupported_claims:
-                st.markdown(f"- ⚠️ **Unsupported**: {unsup}")
-        
-        st.divider()
+    df_matrix = pd.DataFrame(matrix_rows_data)
+    st.dataframe(df_matrix, use_container_width=True)
+
+    # Detailed Cell Inspector
+    st.markdown("#### 🔬 Detailed Matrix Cell Inspector")
+    sel_cand = st.selectbox("Select Candidate to Inspect", options=[r.candidate_name for r in report.matrix_rows])
+    sel_row = next((r for r in report.matrix_rows if r.candidate_name == sel_cand), None)
+    if sel_row:
+        cell_table = []
+        for cell in sel_row.cell_details:
+            cell_table.append({
+                "Requirement": cell.requirement_title,
+                "Type": "MUST HAVE" if cell.is_must_have else "PREFERRED",
+                "Evaluation State": cell.status.value,
+                "Deterministic Reason / Proof": cell.reason
+            })
+        st.dataframe(pd.DataFrame(cell_table), use_container_width=True)
+
+# -------------------------------------------------------------
+# TAB 3: COVERAGE & POOL GAPS
+# -------------------------------------------------------------
+with tab_coverage:
+    st.markdown("### 📊 Requirement Coverage & Pool Restrictiveness")
+    
+    c1_cov, c2_cov = st.columns([1, 1])
+    with c1_cov:
+        st.markdown("#### Individual Criteria Coverage")
+        cov_table = []
+        for item in report.coverage_items:
+            cov_table.append({
+                "Requirement": item.title,
+                "Required": "YES" if item.is_required else "NO",
+                "Candidates Meeting": f"{item.satisfied_count} / {item.total_candidates}",
+                "Coverage": f"{item.coverage_pct}%",
+                "Status": item.status
+            })
+        st.dataframe(pd.DataFrame(cov_table), use_container_width=True)
+
+    with c2_cov:
+        st.markdown("#### Restrictive Intersections (Combined Criteria)")
+        inter_table = []
+        for item in report.intersection_items:
+            inter_table.append({
+                "Requirement Intersection": item.combination_name,
+                "Coverage": f"{item.satisfied_count}/{item.total_candidates} ({item.coverage_pct}%)",
+                "Restrictive": "YES" if item.is_restrictive else "NO",
+                "Notes": item.notes
+            })
+        st.dataframe(pd.DataFrame(inter_table), use_container_width=True)
+
+    # Pool Gap Report & Recommendations
+    st.markdown("---")
+    st.markdown("#### 📋 Pool Gap Analysis & Recruiter Actionable Advice")
+    pool_report = engine.generate_pool_report(active_req, eval_results)
+    st.info(f"**Gap Summary**: {pool_report.gap_analysis_summary}")
+    for rec in pool_report.recruiter_actionable_recommendations:
+        st.markdown(f"- 💡 **Recommendation**: {rec}")
+
+# -------------------------------------------------------------
+# TAB 4: EVIDENCE & CONTRADICTION LEDGER
+# -------------------------------------------------------------
+with tab_ledger:
+    st.markdown("### 🚨 Forensic Contradiction & Evidence Ledger")
+    st.caption("Traceable verification mapping candidate claims to public evidence repositories and identity linkage.")
+
+    for cand_prof in candidates:
+        with st.expander(f"Candidate: {cand_prof.full_name} ({cand_prof.current_role})", expanded=False):
+            ledger = EvidenceLedgerBuilder.build_ledger(cand_prof)
+            res = next((r for r in eval_results if r.candidate_id == cand_prof.id), None)
+            
+            # Contradictions
+            if res and res.contradictions:
+                st.markdown("##### 🚨 Contradiction & Unsupported Flags")
+                for c in res.contradictions:
+                    st.error(f"**{c.flag}** ({c.type.value})\n- **Claim**: {c.claim}\n- **Assessment**: {c.assessment}")
+            else:
+                st.success("Zero contradiction flags detected for this candidate.")
+
+            # Evidence Ledger
+            st.markdown("##### 📑 Traceable Evidence Ledger Entries")
+            ledger_table = []
+            for entry in ledger:
+                ledger_table.append({
+                    "Claim": entry.claim,
+                    "Assessment State": entry.assessment.value,
+                    "Confidence": entry.confidence,
+                    "Identity Status": entry.identity_linkage.status.value,
+                    "Sources Linked": len(entry.sources),
+                    "Reasoning": entry.reasoning
+                })
+            st.dataframe(pd.DataFrame(ledger_table), use_container_width=True)
+
+# -------------------------------------------------------------
+# TAB 5: LIVE RESUME PARSER & UPLOAD SANDBOX
+# -------------------------------------------------------------
+with tab_upload:
+    st.markdown("### 📄 Live Resume Upload & On-The-Fly Screener")
+    st.caption("Upload raw PDF or TXT candidate resumes to run immediate evidence-based screening.")
+
+    uploaded_files = st.file_uploader(
+        "Drop Candidate Resumes Here (PDF or TXT)",
+        type=["pdf", "txt"],
+        accept_multiple_files=True
+    )
+
+    if uploaded_files:
+        st.success(f"Uploaded {len(uploaded_files)} resume(s). Parsing and screening...")
+        for up_file in uploaded_files:
+            file_bytes = up_file.read()
+            parsed_text = DocumentParser.extract_text_from_bytes(file_bytes, up_file.name)
+            sections = DocumentParser.extract_sections(parsed_text)
+            
+            # Build profile
+            new_cand = CandidateProfile(
+                id=f"CAND-LIVE-{abs(hash(up_file.name)) % 10000:04d}",
+                full_name=up_file.name.rsplit(".", 1)[0].replace("_", " ").title(),
+                email=f"{up_file.name.lower().split('.')[0]}@applicant.io",
+                current_role="Applicant",
+                years_of_experience=3.0,
+                raw_resume_text=parsed_text,
+                repository_links=sections["links"].split("\n") if sections["links"] else []
+            )
+
+            # Evaluate immediately
+            new_res = engine.evaluate_single_candidate(active_req, new_cand)
+            
+            with st.container():
+                st.markdown(f"#### 📄 Result for `{up_file.name}`")
+                st.markdown(f"**Score**: `{new_res.score.overall_score}/100` | **Evidence Density**: `{new_res.score.evidence_density_score}%` | **Spam Penalty**: `-{new_res.score.keyword_spam_penalty}`")
+                st.markdown(f"- **Verdict**: *{new_res.tradeoff.summary_verdict}*")
+                st.markdown(f"- **Verified Core Skills**: {', '.join(new_res.verified_skills) if new_res.verified_skills else 'None'}")
+                st.markdown(f"- **Missing Must-Haves**: {', '.join(new_res.missing_must_haves) if new_res.missing_must_haves else 'None'}")
+                if new_res.contradictions:
+                    st.warning(f"🚨 {len(new_res.contradictions)} contradiction flag(s) detected.")
+                st.divider()
