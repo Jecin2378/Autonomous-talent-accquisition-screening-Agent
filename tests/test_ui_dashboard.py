@@ -80,3 +80,27 @@ def test_eval4_candidate_segment_filters():
 
     # Top candidate should be Alex Chen
     assert report.shortlist[0].candidate_name == "Alex Chen"
+
+
+def test_eval4_groq_client_configuration_and_extraction():
+    """Verify GroqClient initialization, configuration check, and fallback extraction."""
+    from core.groq_client import GroqClient
+
+    import os
+    client = GroqClient(
+        api_key=os.getenv("GROQ_API_KEY") or "gsk_test_mock_key_00000000000000000000",
+        base_url="https://api.groq.com/openai/v1",
+        model="openai/gpt-oss-120b"
+    )
+
+    assert client.is_configured() is True
+    assert client.base_url == "https://api.groq.com/openai/v1"
+    assert client.model == "openai/gpt-oss-120b"
+
+    # Test extraction
+    raw_sample = "Jane Doe\nSenior Backend Dev\n4 years experience in Python and FastAPI.\nhttps://github.com/janedoe/fastapi-app"
+    profile = client.extract_candidate_profile(raw_sample, candidate_name="Jane Doe")
+
+    assert profile.full_name == "Jane Doe"
+    assert profile.years_of_experience >= 3.0
+    assert len(profile.repository_links) >= 1

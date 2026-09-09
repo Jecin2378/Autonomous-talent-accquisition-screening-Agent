@@ -1,0 +1,19 @@
+# Environment variables and secrets
+.env
+*.env
+.env.local
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Pytest and IDE
+.pytest_cache/
+.vscode/
+.idea/
+
+# OS specific
+Thumbs.db
+.DS_Store

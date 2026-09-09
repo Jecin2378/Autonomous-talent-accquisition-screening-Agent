@@ -5,38 +5,42 @@ from models.schemas import JobRequisition, CandidateProfile, EvaluationResult, P
 from core.tradeoff_analyzer import TradeoffAnalyzer
 from core.gap_detector import PoolGapDetector
 from core.requirement_analyzer import RequirementAnalyzer
+from core.groq_client import GroqClient
 from parsers.document_parser import DocumentParser
 
 
 class ScreeningAgentEngine:
     """
     Autonomous Screening Agent Orchestrator.
-    Combines NLP parsing, skill normalization, evidence cross-checking, and trade-off scoring.
+    Combines Groq LLM (ChatGPT OSS: openai/gpt-oss-120b), skill normalization,
+    evidence cross-checking, and trade-off scoring.
     """
 
-    def __init__(self, api_key: Optional[str] = None, provider: str = "offline"):
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY") or os.getenv("GEMINI_API_KEY")
-        self.provider = provider if self.api_key else "offline"
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
+        provider: str = "groq"
+    ):
+        self.groq_client = GroqClient(api_key=api_key, base_url=base_url, model=model)
+        self.provider = provider if self.groq_client.is_configured() else "offline"
 
     def evaluate_single_candidate(self, requisition: JobRequisition, candidate: CandidateProfile) -> EvaluationResult:
         """Evaluates a single candidate profile against requisition."""
         return TradeoffAnalyzer.evaluate_candidate(requisition, candidate)
 
     def evaluate_candidate_file(self, requisition: JobRequisition, file_path: str, candidate_name: str = "Applicant") -> EvaluationResult:
-        """Parses a resume file (PDF/TXT) and runs full evaluation."""
+        """Parses a resume file (PDF/TXT) using Groq AI extraction and runs full evaluation."""
         text = DocumentParser.extract_text_from_file(file_path)
-        sections = DocumentParser.extract_sections(text)
-        
-        # Build candidate profile
-        profile = CandidateProfile(
-            id=f"CAND-{abs(hash(file_path)) % 10000:04d}",
-            full_name=candidate_name,
-            email=f"{candidate_name.lower().replace(' ', '.')}@applicant.com",
-            current_role="Applicant",
-            years_of_experience=3.5, # Default estimation if unstructured
-            raw_resume_text=text,
-            repository_links=sections["links"].split("\n") if sections["links"] else []
-        )
+        profile = self.groq_client.extract_candidate_profile(text, candidate_name=candidate_name)
+        return self.evaluate_single_candidate(requisition, profile)
+
+    def evaluate_candidate_bytes(self, requisition: JobRequisition, file_bytes: bytes, filename: str) -> EvaluationResult:
+        """Parses in-memory uploaded resume bytes using Groq AI and runs full evaluation."""
+        text = DocumentParser.extract_text_from_bytes(file_bytes, filename)
+        name_hint = filename.rsplit(".", 1)[0].replace("_", " ").title()
+        profile = self.groq_client.extract_candidate_profile(text, candidate_name=name_hint)
         return self.evaluate_single_candidate(requisition, profile)
 
     def evaluate_batch(self, requisition: JobRequisition, candidates: List[CandidateProfile]) -> List[EvaluationResult]:

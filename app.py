@@ -96,6 +96,25 @@ with st.sidebar:
     st.markdown("## ⚙️ Control Panel")
     st.caption("Configure screening rules, active job requisition, and data sources.")
     
+    st.markdown("### 🤖 Groq AI Engine")
+    groq_api_key = st.text_input(
+        "Groq API Key",
+        value=os.getenv("GROQ_API_KEY", ""),
+        type="password",
+        placeholder="Enter your gsk_... key"
+    )
+    groq_base_url = st.text_input("Groq Base URL", value=os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1"))
+    groq_model = st.selectbox(
+        "ChatGPT OSS Model",
+        options=["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"],
+        index=0
+    )
+    if groq_api_key:
+        st.success(f"🟢 Connected: `{groq_model}`")
+    else:
+        st.info("ℹ️ Running in Offline Mode (Enter key to enable AI extraction)")
+
+    st.markdown("---")
     req_choice = st.selectbox(
         "Active Job Requisition",
         options=[
@@ -110,7 +129,6 @@ with st.sidebar:
     else:
         active_req = get_conflict_requisition()
 
-    st.markdown("---")
     st.markdown("### 📋 Requisition Summary")
     st.markdown(f"**Title**: `{active_req.title}`")
     st.markdown(f"**Department**: `{active_req.department}`")
@@ -127,8 +145,8 @@ with st.sidebar:
     search_query = st.text_input("Search Candidate Name / Skill", "")
     filter_mode = st.radio("Segment Filter", ["All Candidates", "Closest Fit Candidates", "Has Contradictions", "Spam Penalized"], index=0)
 
-# Initialize Engine
-engine = ScreeningAgentEngine()
+# Initialize Engine with Groq AI
+engine = ScreeningAgentEngine(api_key=groq_api_key, base_url=groq_base_url, model=groq_model)
 
 # Initialize or Retrieve Candidates in Session
 if "candidate_pool" not in st.session_state:
@@ -412,8 +430,8 @@ with tab_ledger:
 # TAB 5: LIVE RESUME PARSER & UPLOAD SANDBOX
 # -------------------------------------------------------------
 with tab_upload:
-    st.markdown("### 📄 Live Resume Upload & On-The-Fly Screener")
-    st.caption("Upload raw PDF or TXT candidate resumes to run immediate evidence-based screening.")
+    st.markdown("### 📄 Live Resume Upload & AI-Powered Screener")
+    st.caption("Upload raw PDF or TXT resumes. Groq AI (`openai/gpt-oss-120b`) extracts skills, evidence snippets, metrics, and timeline proof.")
 
     uploaded_files = st.file_uploader(
         "Drop Candidate Resumes Here (PDF or TXT)",
@@ -422,32 +440,48 @@ with tab_upload:
     )
 
     if uploaded_files:
-        st.success(f"Uploaded {len(uploaded_files)} resume(s). Parsing and screening...")
+        st.info(f"Processing {len(uploaded_files)} candidate resume(s) with Groq AI...")
         for up_file in uploaded_files:
             file_bytes = up_file.read()
-            parsed_text = DocumentParser.extract_text_from_bytes(file_bytes, up_file.name)
-            sections = DocumentParser.extract_sections(parsed_text)
             
-            # Build profile
-            new_cand = CandidateProfile(
-                id=f"CAND-LIVE-{abs(hash(up_file.name)) % 10000:04d}",
-                full_name=up_file.name.rsplit(".", 1)[0].replace("_", " ").title(),
-                email=f"{up_file.name.lower().split('.')[0]}@applicant.io",
-                current_role="Applicant",
-                years_of_experience=3.0,
-                raw_resume_text=parsed_text,
-                repository_links=sections["links"].split("\n") if sections["links"] else []
-            )
-
-            # Evaluate immediately
-            new_res = engine.evaluate_single_candidate(active_req, new_cand)
+            with st.spinner(f"Extracting claims & evidence for `{up_file.name}` via Groq AI..."):
+                new_cand = engine.groq_client.extract_candidate_profile(
+                    raw_text=DocumentParser.extract_text_from_bytes(file_bytes, up_file.name),
+                    candidate_name=up_file.name.rsplit(".", 1)[0].replace("_", " ").title()
+                )
+                new_res = engine.evaluate_single_candidate(active_req, new_cand)
             
             with st.container():
-                st.markdown(f"#### 📄 Result for `{up_file.name}`")
-                st.markdown(f"**Score**: `{new_res.score.overall_score}/100` | **Evidence Density**: `{new_res.score.evidence_density_score}%` | **Spam Penalty**: `-{new_res.score.keyword_spam_penalty}`")
-                st.markdown(f"- **Verdict**: *{new_res.tradeoff.summary_verdict}*")
-                st.markdown(f"- **Verified Core Skills**: {', '.join(new_res.verified_skills) if new_res.verified_skills else 'None'}")
-                st.markdown(f"- **Missing Must-Haves**: {', '.join(new_res.missing_must_haves) if new_res.missing_must_haves else 'None'}")
-                if new_res.contradictions:
-                    st.warning(f"🚨 {len(new_res.contradictions)} contradiction flag(s) detected.")
+                st.markdown(f"#### 👤 {new_cand.full_name} (`{new_cand.current_role}`) - *{new_cand.years_of_experience} yrs exp*")
+                col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+                with col_m1:
+                    st.metric("Overall Score", f"{new_res.score.overall_score}/100")
+                with col_m2:
+                    st.metric("Evidence Density", f"{new_res.score.evidence_density_score}%")
+                with col_m3:
+                    st.metric("Requirement Match", f"{new_res.score.requirement_match_score}%")
+                with col_m4:
+                    st.metric("Spam Penalty", f"-{new_res.score.keyword_spam_penalty} pts")
+
+                st.markdown(f"**Verdict**: *{new_res.tradeoff.summary_verdict}*")
+                
+                # Show AI Extracted Claims
+                with st.expander("🔍 View AI-Extracted Claims & Proof Snippets", expanded=True):
+                    if new_cand.claims:
+                        for clm in new_cand.claims:
+                            status_icon = "✅" if clm.is_verified else "⚠️"
+                            badge_cls = "badge-pass" if clm.is_verified else "badge-unsupported"
+                            st.markdown(f"**{status_icon} {clm.skill_name}** ({clm.claimed_years} yrs) - <span class='badge {badge_cls}'>{'Verified Proof' if clm.is_verified else 'Unverified Keyword'}</span>", unsafe_allow_html=True)
+                            for ev in clm.evidence_list:
+                                st.markdown(f"> *[{ev.type.value}]* `{ev.proof_snippet}`")
+                    else:
+                        st.caption("No claims extracted.")
+
+                # Action button to add candidate into the active pool
+                if st.button(f"➕ Add {new_cand.full_name} to Active Candidate Pool", key=f"btn_{new_cand.id}"):
+                    if not any(c.id == new_cand.id for c in st.session_state.candidate_pool):
+                        st.session_state.candidate_pool.append(new_cand)
+                        st.success(f"Added {new_cand.full_name} to candidate pool! Re-evaluating dashboard...")
+                        st.rerun()
+
                 st.divider()
