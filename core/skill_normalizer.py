@@ -1,4 +1,4 @@
-from typing import Dict, List, Set
+from typing import Dict, List, Set, FrozenSet
 
 
 class SkillNormalizer:
@@ -25,6 +25,8 @@ class SkillNormalizer:
         "helm": "Helm",
         "aws": "AWS",
         "amazon web services": "AWS",
+        "azure": "Azure",
+        "microsoft azure": "Azure",
         "gcp": "Google Cloud",
 
         # Databases & Vector DB
@@ -50,6 +52,16 @@ class SkillNormalizer:
         "rust": "Rust"
     }
 
+    NON_EQUIVALENT_PAIRS: Set[FrozenSet[str]] = {
+        frozenset({"docker", "kubernetes"}),
+        frozenset({"docker", "k8s"}),
+        frozenset({"aws", "azure"}),
+        frozenset({"aws", "gcp"}),
+        frozenset({"azure", "gcp"}),
+        frozenset({"python", "rust"}),
+        frozenset({"python", "c++"}),
+    }
+
     @classmethod
     def normalize(cls, skill_name: str) -> str:
         """Returns the canonical normalized skill name."""
@@ -62,25 +74,21 @@ class SkillNormalizer:
         norm_a = cls.normalize(skill_a).lower()
         norm_b = cls.normalize(skill_b).lower()
 
+        pair = frozenset({norm_a, norm_b})
+        if pair in cls.NON_EQUIVALENT_PAIRS:
+            return False
+
         if norm_a == norm_b:
             return True
 
         raw_a = skill_a.lower()
         raw_b = skill_b.lower()
 
-        if norm_a in raw_b or norm_b in raw_a or raw_a in raw_b or raw_b in raw_a:
+        if cls.normalize(raw_a) == cls.normalize(raw_b):
             return True
 
-        # Check token intersection
-        tokens_a = set(raw_a.replace('/', ' ').replace('-', ' ').split())
-        tokens_b = set(raw_b.replace('/', ' ').replace('-', ' ').split())
-        
-        # Filter out common stop words
-        stops = {"and", "or", "the", "in", "for", "with", "programming", "infrastructure", "deep", "learning"}
-        t_a = tokens_a - stops
-        t_b = tokens_b - stops
-
-        if t_a and t_b and not t_a.isdisjoint(t_b):
+        # Check substring containment for complex titles (e.g. "PyTorch" inside "PyTorch / Deep Learning")
+        if norm_a in norm_b or norm_b in norm_a or raw_a in raw_b or raw_b in raw_a:
             return True
 
         return False

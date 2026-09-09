@@ -8,7 +8,6 @@ class EvidenceVerifier:
     """Evaluates candidate claims against concrete evidence to flag keyword spamming."""
 
     METRIC_PATTERN = re.compile(r'(\d+%\s*|\d+x\s*|\$\d+|\d+\s*nodes|\d+\s*ms|\d+\s*k|\d+\s*m|\d+\s*users|\d+\s*requests)', re.IGNORECASE)
-    GITHUB_PATTERN = re.compile(r'github\.com/[a-zA-Z0-9_-]+', re.IGNORECASE)
 
     @classmethod
     def verify_candidate_profile(cls, candidate: CandidateProfile) -> Tuple[CandidateProfile, float, float]:
@@ -47,7 +46,6 @@ class EvidenceVerifier:
                 claim.is_verified = False
                 unsubstantiated_count += 1
                 claim.verification_notes = "ALERT: Claim listed as keyword without supporting project tenure or quantifiable evidence."
-                # Add unsubstantiated evidence marker if missing
                 if not claim.evidence_list:
                     claim.evidence_list.append(
                         Evidence(
@@ -59,10 +57,7 @@ class EvidenceVerifier:
                         )
                     )
 
-        # Calculate scores
         evidence_density = (total_evidence_weight / max(total_claims, 1)) * 100.0
-        
-        # Spam penalty calculation
         spam_ratio = unsubstantiated_count / max(total_claims, 1)
         keyword_spam_penalty = spam_ratio * 40.0
 
@@ -83,8 +78,8 @@ class EvidenceVerifier:
 
         for idx, line in enumerate(lines):
             lowered = line.lower()
-            if skill.lower() in lowered:
-                # Check for metrics
+            # Match using SkillNormalizer.are_equivalent
+            if SkillNormalizer.are_equivalent(skill, line) or skill.lower() in lowered:
                 has_metric = bool(cls.METRIC_PATTERN.search(line))
                 
                 if has_metric:
@@ -97,7 +92,7 @@ class EvidenceVerifier:
                             confidence_score=0.95
                         )
                     )
-                elif "experience" in lowered or "engineer" in lowered or "developed" in lowered or "built" in lowered:
+                else:
                     evidence_items.append(
                         Evidence(
                             id=f"EV-TENURE-{idx}",
@@ -108,9 +103,8 @@ class EvidenceVerifier:
                         )
                     )
 
-        # Check repository links
         for repo in repo_links:
-            if skill.lower() in repo.lower():
+            if SkillNormalizer.are_equivalent(skill, repo) or skill.lower() in repo.lower():
                 evidence_items.append(
                     Evidence(
                         id=f"EV-REPO-{len(evidence_items)}",

@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 
@@ -25,6 +25,49 @@ class EvidenceType(str, Enum):
     GITHUB_REPO = "GITHUB_REPO"
     PUBLICATION = "PUBLICATION"
     UNSUBSTANTIATED_KEYWORD = "UNSUBSTANTIATED_KEYWORD"
+
+
+class ContradictionType(str, Enum):
+    SKILL_EXPERIENCE_CONTRADICTION = "SKILL_EXPERIENCE_CONTRADICTION"
+    RESUME_COVER_NOTE_CONTRADICTION = "RESUME_COVER_NOTE_CONTRADICTION"
+    TITLE_RESPONSIBILITY_MISMATCH = "TITLE_RESPONSIBILITY_MISMATCH"
+    EXPERTISE_EVIDENCE_CONTRADICTION = "EXPERTISE_EVIDENCE_CONTRADICTION"
+    DATE_EXPERIENCE_CONTRADICTION = "DATE_EXPERIENCE_CONTRADICTION"
+    SECTION_CONTRADICTION = "SECTION_CONTRADICTION"
+    GENERAL_CONTRADICTION = "GENERAL_CONTRADICTION"
+
+
+class ContradictionFlag(str, Enum):
+    CONTRADICTORY_UNSUPPORTED = "CONTRADICTORY / UNSUPPORTED CLAIM"
+    UNSUPPORTED_CLAIM = "UNSUPPORTED CLAIM"
+
+
+class EvidenceSourceType(str, Enum):
+    GITHUB = "GITHUB"
+    GITLAB = "GITLAB"
+    BITBUCKET = "BITBUCKET"
+    LEETCODE = "LEETCODE"
+    CODEFORCES = "CODEFORCES"
+    HACKERRANK = "HACKERRANK"
+    CODECHEF = "CODECHEF"
+    KAGGLE = "KAGGLE"
+    HUGGINGFACE = "HUGGINGFACE"
+    PORTFOLIO = "PORTFOLIO"
+    RESEARCH = "RESEARCH"
+    CERTIFICATION = "CERTIFICATION"
+    OTHER = "OTHER"
+
+
+class EvidenceState(str, Enum):
+    SUPPORTED = "SUPPORTED"
+    UNVERIFIED = "UNVERIFIED"
+    CONTRADICTORY_UNSUPPORTED = "CONTRADICTORY / UNSUPPORTED"
+
+
+class IdentityLinkStatus(str, Enum):
+    STRONG = "strong"
+    POSSIBLE = "possible"
+    UNCLEAR = "unclear"
 
 
 class Requirement(BaseModel):
@@ -70,6 +113,7 @@ class CandidateProfile(BaseModel):
     years_of_experience: float
     claims: List[Claim] = Field(default_factory=list)
     raw_resume_text: str = ""
+    cover_note: Optional[str] = ""
     repository_links: List[str] = Field(default_factory=list)
 
 
@@ -79,6 +123,45 @@ class CandidateScore(BaseModel):
     requirement_match_score: float = Field(ge=0.0, le=100.0)
     skill_depth_score: float = Field(ge=0.0, le=100.0)
     keyword_spam_penalty: float = Field(ge=0.0, le=50.0, default=0.0)
+
+
+class EvidenceReference(BaseModel):
+    source: str
+    text: str
+
+
+class ContradictionResult(BaseModel):
+    candidate_id: str
+    flag: str
+    type: ContradictionType
+    claim: str
+    evidence: List[EvidenceReference]
+    assessment: str
+    confidence: str = "reduced"
+
+
+class EvidenceSourceMetadata(BaseModel):
+    source_name: str
+    source_type: EvidenceSourceType
+    url: str
+    supported_claim_types: List[str]
+    is_accessible: bool = True
+    notes: str = ""
+
+
+class IdentityLinkage(BaseModel):
+    status: IdentityLinkStatus
+    reasons: List[str]
+    confidence_score: float = 1.0
+
+
+class EvidenceLedgerEntry(BaseModel):
+    claim: str
+    sources: List[Dict[str, str]]
+    assessment: EvidenceState
+    confidence: str = "high" # "high", "moderate", "reduced"
+    identity_linkage: IdentityLinkage
+    reasoning: str = ""
 
 
 class CandidateTradeoff(BaseModel):
@@ -97,6 +180,8 @@ class EvaluationResult(BaseModel):
     missing_must_haves: List[str]
     missing_preferred: List[str]
     unverified_claims: List[str]
+    contradictions: List[ContradictionResult] = Field(default_factory=list)
+    evidence_ledger: List[EvidenceLedgerEntry] = Field(default_factory=list)
     tradeoff: CandidateTradeoff
     explainable_rationale: str
 
