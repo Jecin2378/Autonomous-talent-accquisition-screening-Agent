@@ -7,6 +7,11 @@ try:
 except ImportError:
     pypdf = None
 
+try:
+    import pypdfium2
+except ImportError:
+    pypdfium2 = None
+
 
 class DocumentParser:
     """Extracts structured text and sections from PDF/TXT resumes or requisition files."""
@@ -29,6 +34,7 @@ class DocumentParser:
         """Extract text from in-memory file bytes (PDF or TXT)."""
         ext = os.path.splitext(filename)[1].lower()
         if ext == ".pdf":
+            # 1. Try pypdf
             if pypdf is not None:
                 import io
                 try:
@@ -42,6 +48,20 @@ class DocumentParser:
                         return text
                 except Exception:
                     pass
+            # 2. Try pypdfium2
+            if pypdfium2 is not None:
+                try:
+                    pdf = pypdfium2.PdfDocument(content)
+                    text = ""
+                    for page in pdf:
+                        tp = page.get_textpage()
+                        extracted = tp.get_text_range()
+                        if extracted:
+                            text += extracted + "\n"
+                    if text.strip():
+                        return text
+                except Exception:
+                    pass
             return re.sub(rb'[^\x20-\x7E\n\r\t]', b' ', content).decode('ascii', errors='ignore')
         else:
             return content.decode("utf-8", errors="ignore")
@@ -49,6 +69,7 @@ class DocumentParser:
     @staticmethod
     def _parse_pdf(file_path: str) -> str:
         text = ""
+        # 1. Try pypdf
         if pypdf is not None:
             try:
                 reader = pypdf.PdfReader(file_path)
@@ -56,14 +77,29 @@ class DocumentParser:
                     extracted = page.extract_text()
                     if extracted:
                         text += extracted + "\n"
-                return text
+                if text.strip():
+                    return text
             except Exception as e:
-                print(f"[Warning] pypdf failed: {e}. Falling back to text mode.")
+                print(f"[Warning] pypdf failed: {e}. Trying fallback.")
 
-        # Fallback reading
+        # 2. Try pypdfium2
+        if pypdfium2 is not None:
+            try:
+                pdf = pypdfium2.PdfDocument(file_path)
+                text = ""
+                for page in pdf:
+                    tp = page.get_textpage()
+                    extracted = tp.get_text_range()
+                    if extracted:
+                        text += extracted + "\n"
+                if text.strip():
+                    return text
+            except Exception as e:
+                print(f"[Warning] pypdfium2 failed: {e}. Trying raw fallback.")
+
+        # 3. Fallback reading
         with open(file_path, "rb") as f:
             content = f.read()
-            # Basic ascii/utf-8 extraction fallback
             text = re.sub(rb'[^\x20-\x7E\n\r\t]', b' ', content).decode('ascii', errors='ignore')
         return text
 
