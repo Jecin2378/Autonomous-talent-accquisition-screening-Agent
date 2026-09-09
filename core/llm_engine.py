@@ -1,9 +1,10 @@
 import json
 import os
 from typing import List, Optional
-from models.schemas import JobRequisition, CandidateProfile, EvaluationResult, PoolGapReport
+from models.schemas import JobRequisition, CandidateProfile, EvaluationResult, PoolGapReport, RequisitionAnalysisReport
 from core.tradeoff_analyzer import TradeoffAnalyzer
 from core.gap_detector import PoolGapDetector
+from core.requirement_analyzer import RequirementAnalyzer
 from parsers.document_parser import DocumentParser
 
 
@@ -48,3 +49,14 @@ class ScreeningAgentEngine:
     def generate_pool_report(self, requisition: JobRequisition, results: List[EvaluationResult]) -> PoolGapReport:
         """Generates pool-wide gap detection report."""
         return PoolGapDetector.analyze_pool_gaps(requisition, results)
+
+    def analyze_requisition_and_shortlist(
+        self,
+        requisition: JobRequisition,
+        candidates: List[CandidateProfile]
+    ) -> RequisitionAnalysisReport:
+        """
+        Runs comprehensive Requisition Conflict Analysis, Candidate Requirement Matrix,
+        Coverage & Restrictive Intersection Analysis, and Closest-Fit Shortlisting.
+        """
+        return RequirementAnalyzer.analyze_requisition_full(requisition, candidates)

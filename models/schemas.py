@@ -70,6 +70,40 @@ class IdentityLinkStatus(str, Enum):
     UNCLEAR = "unclear"
 
 
+class ConstraintType(str, Enum):
+    NUMERIC_MIN = "NUMERIC_MIN"
+    NUMERIC_MAX = "NUMERIC_MAX"
+    EXACT_LEVEL = "EXACT_LEVEL"
+    SKILL_PRESENCE = "SKILL_PRESENCE"
+    SKILL_STRENGTH = "SKILL_STRENGTH"
+    BOOLEAN = "BOOLEAN"
+    PREFERRED = "PREFERRED"
+
+
+class RequirementStatus(str, Enum):
+    PASS = "PASS"
+    PARTIAL = "PARTIAL"
+    FAIL = "FAIL"
+    UNKNOWN = "UNKNOWN"
+    UNSUPPORTED = "UNSUPPORTED"
+    CONTRADICTORY = "CONTRADICTORY"
+
+
+class ConflictType(str, Enum):
+    EXPERIENCE_LEVEL_CONFLICT = "EXPERIENCE_LEVEL_CONFLICT"
+    SKILL_CONSTRAINT_CONFLICT = "SKILL_CONSTRAINT_CONFLICT"
+    COMPENSATION_CONSTRAINT = "COMPENSATION_CONSTRAINT"
+    REQUIREMENT_INTERSECTION_TOO_RESTRICTIVE = "REQUIREMENT_INTERSECTION_TOO_RESTRICTIVE"
+    GENERAL_CONFLICT = "GENERAL_CONFLICT"
+
+
+class ConflictSeverity(str, Enum):
+    POTENTIAL_CONFLICT = "POTENTIAL_CONFLICT"
+    HIGH_RESTRICTION = "HIGH_RESTRICTION"
+    COMPATIBLE = "COMPATIBLE"
+    UNCLEAR = "UNCLEAR"
+
+
 class Requirement(BaseModel):
     id: str
     title: str
@@ -78,6 +112,11 @@ class Requirement(BaseModel):
     type: RequirementType = RequirementType.MUST_HAVE
     min_years: float = 0.0
     weight: float = 1.0
+    constraint_type: Optional[ConstraintType] = None
+    target_value: Optional[Any] = None
+    comparison_operator: Optional[str] = None
+    evidence_needed: Optional[str] = None
+    is_hard_requirement: bool = True
 
 
 class JobRequisition(BaseModel):
@@ -87,6 +126,9 @@ class JobRequisition(BaseModel):
     experience_level: str
     requirements: List[Requirement]
     raw_description: Optional[str] = ""
+    max_salary: Optional[float] = None
+    salary_currency: Optional[str] = "LPA"
+    target_role_level: Optional[str] = None
 
 
 class Evidence(BaseModel):
@@ -115,6 +157,11 @@ class CandidateProfile(BaseModel):
     raw_resume_text: str = ""
     cover_note: Optional[str] = ""
     repository_links: List[str] = Field(default_factory=list)
+    expected_salary: Optional[float] = None
+    current_level: Optional[str] = None
+    location: Optional[str] = None
+    willing_to_relocate: Optional[bool] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class CandidateScore(BaseModel):
@@ -194,3 +241,83 @@ class PoolGapReport(BaseModel):
     unmet_preferred: List[str]
     gap_analysis_summary: str
     recruiter_actionable_recommendations: List[str]
+
+
+class RequirementConflict(BaseModel):
+    conflict_type: ConflictType
+    severity: ConflictSeverity
+    title: str
+    conflicting_requirements: List[str]
+    reason: str
+
+
+class RequirementCoverageItem(BaseModel):
+    requirement_id: str
+    title: str
+    is_required: bool
+    satisfied_count: int
+    total_candidates: int
+    coverage_pct: float
+    status: str # "LOW_COVERAGE", "MODERATE_COVERAGE", "HIGH_COVERAGE"
+
+
+class RequirementIntersectionItem(BaseModel):
+    combination_name: str
+    requirements: List[str]
+    satisfied_count: int
+    total_candidates: int
+    coverage_pct: float
+    is_restrictive: bool = False
+    notes: str = ""
+
+
+class CandidateRequirementCell(BaseModel):
+    requirement_id: str
+    requirement_title: str
+    status: RequirementStatus
+    reason: str = ""
+    is_must_have: bool = True
+
+
+class CandidateMatrixRow(BaseModel):
+    candidate_id: str
+    candidate_name: str
+    cells: Dict[str, RequirementStatus]
+    cell_details: List[CandidateRequirementCell] = Field(default_factory=list)
+    required_satisfied: int = 0
+    required_total: int = 0
+    preferred_satisfied: int = 0
+    preferred_total: int = 0
+    satisfies_all_required: bool = False
+
+
+class ShortlistCandidate(BaseModel):
+    candidate_id: str
+    candidate_name: str
+    rank: int = 1
+    strengths: List[str] = Field(default_factory=list)
+    unmet_requirements: List[str] = Field(default_factory=list)
+    partial_requirements: List[str] = Field(default_factory=list)
+    contradictions: List[str] = Field(default_factory=list)
+    unsupported_claims: List[str] = Field(default_factory=list)
+    tradeoffs: List[str] = Field(default_factory=list)
+    evidence_confidence: str = "High" # "High", "Moderate", "Reduced"
+    required_criteria_met: int = 0
+    required_criteria_total: int = 0
+    preferred_criteria_met: int = 0
+    preferred_criteria_total: int = 0
+    overall_assessment: str = ""
+    secondary_score: Optional[float] = None
+
+
+class RequisitionAnalysisReport(BaseModel):
+    requisition_id: str
+    requisition_title: str
+    conflicts_detected: List[RequirementConflict] = Field(default_factory=list)
+    coverage_items: List[RequirementCoverageItem] = Field(default_factory=list)
+    intersection_items: List[RequirementIntersectionItem] = Field(default_factory=list)
+    has_full_satisfaction: bool = False
+    satisfaction_verdict: str = ""
+    pool_gaps_summary: str = ""
+    matrix_rows: List[CandidateMatrixRow] = Field(default_factory=list)
+    shortlist: List[ShortlistCandidate] = Field(default_factory=list)
