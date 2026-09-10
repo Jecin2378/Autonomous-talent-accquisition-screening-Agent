@@ -461,7 +461,9 @@ class RequirementAnalyzer:
                     preferred_criteria_met=row.preferred_satisfied,
                     preferred_criteria_total=row.preferred_total,
                     overall_assessment=assessment,
-                    secondary_score=res.score.overall_score
+                    secondary_score=res.score.overall_score,
+                    project_verifications=res.project_verifications,
+                    github_audit=res.github_audit
                 )
             )
 

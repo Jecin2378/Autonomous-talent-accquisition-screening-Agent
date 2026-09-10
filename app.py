@@ -18,6 +18,9 @@ from core.requirement_analyzer import RequirementAnalyzer
 from core.evidence_ledger import EvidenceLedgerBuilder
 from parsers.document_parser import DocumentParser
 from data.sample_data import get_sample_requisition, get_sample_candidates
+from core.domain_requisitions import (
+    get_available_domains, get_requisition_by_domain, get_conflict_requisition
+)
 
 
 # Page Config
@@ -33,62 +36,6 @@ css_path = os.path.join(os.path.dirname(__file__), "static", "style.css")
 if os.path.exists(css_path):
     with open(css_path, "r", encoding="utf-8") as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-
-# Custom Helper Functions
-def get_conflict_requisition() -> JobRequisition:
-    """Returns sample requisition containing realistic requirement conflicts."""
-    return JobRequisition(
-        id="REQ-CONFLICT-DEMO",
-        title="Junior AI Platform Associate",
-        department="AI Infrastructure",
-        experience_level="Junior-Level",
-        max_salary=7.5,
-        salary_currency="LPA",
-        requirements=[
-            Requirement(
-                id="RC-1",
-                title="Software Experience",
-                description="5+ years software development experience required",
-                category=SkillCategory.OTHER,
-                min_years=5.0,
-                type=RequirementType.MUST_HAVE,
-                constraint_type=ConstraintType.NUMERIC_MIN
-            ),
-            Requirement(
-                id="RC-2",
-                title="Kubernetes",
-                description="Production K8s cluster administration",
-                category=SkillCategory.INFRASTRUCTURE,
-                min_years=3.0,
-                type=RequirementType.MUST_HAVE
-            ),
-            Requirement(
-                id="RC-3",
-                title="Python Programming",
-                description="Python async services",
-                category=SkillCategory.LANGUAGES,
-                min_years=3.0,
-                type=RequirementType.MUST_HAVE
-            ),
-            Requirement(
-                id="RC-4",
-                title="Salary Alignment",
-                description="Salary ceiling <= 7.5 LPA",
-                category=SkillCategory.OTHER,
-                type=RequirementType.MUST_HAVE,
-                constraint_type=ConstraintType.NUMERIC_MAX,
-                target_value=7.5
-            ),
-            Requirement(
-                id="RC-5",
-                title="AWS",
-                description="AWS infrastructure preferred",
-                category=SkillCategory.INFRASTRUCTURE,
-                type=RequirementType.PREFERRED
-            )
-        ],
-        raw_description="Junior-level position seeking talent with 5+ years experience and K8s expertise under ₹7.5 LPA."
-    )
 
 
 # Sidebar Configuration
@@ -115,19 +62,15 @@ with st.sidebar:
         st.info("ℹ️ Running in Offline Mode (Enter key to enable AI extraction)")
 
     st.markdown("---")
-    req_choice = st.selectbox(
-        "Active Job Requisition",
-        options=[
-            "Senior AI Platform & MLOps Engineer (Standard)",
-            "Junior AI Associate (With Internal Conflicts)"
-        ],
+    st.markdown("### 🎯 Preferred Domain & Role")
+    st.caption("Select domain role to screen candidates with dedicated skill sets:")
+    domain_options = get_available_domains()
+    domain_choice = st.selectbox(
+        "Recruiter Preferred Role",
+        options=domain_options,
         index=0
     )
-
-    if req_choice.startswith("Senior"):
-        active_req = get_sample_requisition()
-    else:
-        active_req = get_conflict_requisition()
+    active_req = get_requisition_by_domain(domain_choice)
 
     st.markdown("### 📋 Requisition Summary")
     st.markdown(f"**Title**: `{active_req.title}`")
@@ -361,7 +304,40 @@ with tab_shortlist:
                     for unsup in cand.unsupported_claims:
                         st.markdown(f"- ⚠️ **Unverified Claim**: {unsup}")
 
-                # Expandable Evidence Drawer
+                # 1. Project-to-Skill Verification (Internal Resume Audit)
+                if cand.project_verifications:
+                    backed_cnt = sum(1 for p in cand.project_verifications if p.is_project_backed)
+                    with st.expander(f"🛠️ Project-to-Skill Verification ({backed_cnt}/{len(cand.project_verifications)} Skills Backed by Projects)", expanded=False):
+                        pv_rows = []
+                        for pv in cand.project_verifications:
+                            pv_rows.append({
+                                "Skill": pv.skill_name,
+                                "Project Verification": "✅ PROJECT-BACKED" if pv.is_project_backed else "⚠️ KEYWORD ONLY",
+                                "Associated Project": pv.project_title,
+                                "Measurable Impact": pv.metric_impact or "—",
+                                "Resume Evidence Snippet": pv.proof_snippet
+                            })
+                        st.dataframe(pd.DataFrame(pv_rows), use_container_width=True)
+
+                # 2. GitHub Project & Code Verification (External Repo Audit)
+                if cand.github_audit and cand.github_audit.github_url:
+                    with st.expander(f"🐙 GitHub Project & Code Audit (@{cand.github_audit.username})", expanded=False):
+                        st.markdown(f"**Audit Status**: {cand.github_audit.audit_verdict}")
+                        st.markdown(f"- **GitHub URL**: [{cand.github_audit.github_url}]({cand.github_audit.github_url})")
+                        if cand.github_audit.skills_substantiated:
+                            st.markdown(f"- **Skills Corroborated by GitHub Projects**: `{', '.join(cand.github_audit.skills_substantiated)}`")
+                        if cand.github_audit.skills_unsubstantiated:
+                            st.caption(f"Uncorroborated on GitHub: {', '.join(cand.github_audit.skills_unsubstantiated[:6])}")
+                        
+                        if cand.github_audit.repos:
+                            st.markdown("##### 📦 Audited Repositories:")
+                            for r in cand.github_audit.repos:
+                                match_tag = f" — *Matches skills: {', '.join(r.matched_skills)}*" if r.matched_skills else ""
+                                st.markdown(f"- 📁 **[{r.repo_name}]({r.repo_url})** (`{r.primary_language or 'Code'}`){match_tag}")
+                                if r.description:
+                                    st.caption(f"> {r.description}")
+
+                # 3. Expandable Evidence Drawer
                 with st.expander(f"🔍 Inspect Evidence & Proof Snippets for {cand.candidate_name}"):
                     c_prof = next((cp for cp in candidates if cp.id == cand.candidate_id), None)
                     if c_prof and c_prof.claims:
@@ -581,7 +557,22 @@ with tab_upload:
 
                     st.markdown(f"**Verdict**: *{c_res.tradeoff.summary_verdict}*")
                 
-                # Show AI Extracted Claims
+                # 1. Project-to-Skill Verification & GitHub Badges
+                if c_res:
+                    col_b1, col_b2 = st.columns(2)
+                    with col_b1:
+                        if c_res.project_verifications:
+                            pb_cnt = sum(1 for p in c_res.project_verifications if p.is_project_backed)
+                            p_cls = "badge-pass" if pb_cnt == len(c_res.project_verifications) else ("badge-unsupported" if pb_cnt > 0 else "badge-fail")
+                            st.markdown(f"**🛠️ Project Verification**: <span class='badge {p_cls}'>{pb_cnt}/{len(c_res.project_verifications)} Skills Project-Backed</span>", unsafe_allow_html=True)
+                    with col_b2:
+                        if c_res.github_audit and c_res.github_audit.github_url:
+                            gh_cls = "badge-pass" if c_res.github_audit.is_verified else "badge-unsupported"
+                            st.markdown(f"**🐙 GitHub Repo Audit**: <span class='badge {gh_cls}'>{'✅ Verified Code' if c_res.github_audit.is_verified else '⚠️ Unsubstantiated'}</span> `@{c_res.github_audit.username}`", unsafe_allow_html=True)
+                        else:
+                            st.markdown("**🐙 GitHub Repo Audit**: <span class='badge badge-fail'>No GitHub URL Found</span>", unsafe_allow_html=True)
+
+                # 2. Show AI Extracted Claims
                 with st.expander(f"🔍 View AI-Extracted Claims & Proof Snippets ({len(cand.claims)} skills)", expanded=False):
                     if cand.claims:
                         for clm in cand.claims:
@@ -592,6 +583,35 @@ with tab_upload:
                                 st.markdown(f"> *[{ev.type.value}]* `{ev.proof_snippet}`")
                     else:
                         st.caption("No claims extracted.")
+
+                # 3. Show Project-to-Skill Verification Matrix
+                if c_res and c_res.project_verifications:
+                    with st.expander(f"🛠️ Project-to-Skill Verification Breakdown ({sum(1 for p in c_res.project_verifications if p.is_project_backed)}/{len(c_res.project_verifications)} Project-Backed)", expanded=False):
+                        pv_rows = []
+                        for pv in c_res.project_verifications:
+                            pv_rows.append({
+                                "Skill": pv.skill_name,
+                                "Project-Backed?": "✅ YES" if pv.is_project_backed else "⚠️ KEYWORD ONLY",
+                                "Project Context": pv.project_title,
+                                "Metric / Deliverable": pv.metric_impact or "—",
+                                "Evidence Snippet": pv.proof_snippet
+                            })
+                        st.dataframe(pd.DataFrame(pv_rows), use_container_width=True)
+
+                # 4. Show GitHub Repo Audit
+                if c_res and c_res.github_audit and c_res.github_audit.github_url:
+                    with st.expander(f"🐙 GitHub Project & Code Audit Details (@{c_res.github_audit.username})", expanded=False):
+                        st.markdown(f"**Status**: {c_res.github_audit.audit_verdict}")
+                        st.markdown(f"**URL**: [{c_res.github_audit.github_url}]({c_res.github_audit.github_url})")
+                        if c_res.github_audit.skills_substantiated:
+                            st.markdown(f"- **Corroborated Skills**: `{', '.join(c_res.github_audit.skills_substantiated)}`")
+                        if c_res.github_audit.repos:
+                            st.markdown("##### 📦 Audited Repositories:")
+                            for r in c_res.github_audit.repos:
+                                match_tag = f" — *Matches skills: {', '.join(r.matched_skills)}*" if r.matched_skills else ""
+                                st.markdown(f"- 📁 **[{r.repo_name}]({r.repo_url})** (`{r.primary_language or 'Code'}`){match_tag}")
+                                if r.description:
+                                    st.caption(f"> {r.description}")
 
                 # Action button to remove candidate individually
                 col_btn1, _ = st.columns([2, 5])
@@ -605,3 +625,4 @@ with tab_upload:
                         st.rerun()
 
                 st.divider()
+
