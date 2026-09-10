@@ -124,11 +124,12 @@ def test_e2e_07_tab4_evidence_ledger(browser_page: Page):
 
 def test_e2e_08_sidebar_requisition_switching(browser_page: Page):
     """Test Corner 8: Sidebar Requisition switcher toggles active vacancy and detects conflicts."""
-    # Locate Active Job Requisition selectbox in sidebar (second selectbox in sidebar)
-    req_sb = browser_page.locator('[data-testid="stSidebar"] [data-testid="stSelectbox"]').nth(1)
+    # Locate Active Job Requisition selectbox in sidebar
+    req_sb = browser_page.locator('[data-testid="stSidebar"] [data-testid="stSelectbox"]').first
     req_sb.scroll_into_view_if_needed()
     req_sb.click()
     time.sleep(1)
+
     
     # Click the Junior AI Associate option
     opt = browser_page.locator('li[role="option"]').filter(has_text="Junior AI Associate").first

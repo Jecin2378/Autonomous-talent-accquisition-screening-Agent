@@ -42,26 +42,7 @@ if os.path.exists(css_path):
 with st.sidebar:
     st.markdown("## ⚙️ Control Panel")
     st.caption("Configure screening rules, active job requisition, and data sources.")
-    
-    st.markdown("### 🤖 Groq AI Engine")
-    groq_api_key = st.text_input(
-        "Groq API Key",
-        value=os.getenv("GROQ_API_KEY", ""),
-        type="password",
-        placeholder="Enter your gsk_... key"
-    )
-    groq_base_url = st.text_input("Groq Base URL", value=os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1"))
-    groq_model = st.selectbox(
-        "ChatGPT OSS Model",
-        options=["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"],
-        index=0
-    )
-    if groq_api_key:
-        st.success(f"🟢 Connected: `{groq_model}`")
-    else:
-        st.info("ℹ️ Running in Offline Mode (Enter key to enable AI extraction)")
 
-    st.markdown("---")
     st.markdown("### 🎯 Preferred Domain & Role")
     st.caption("Select domain role to screen candidates with dedicated skill sets:")
     domain_options = get_available_domains()
@@ -106,8 +87,9 @@ with st.sidebar:
         st.session_state.candidate_pool = list(st.session_state.uploaded_candidates.values())
         st.rerun()
 
-# Initialize Engine with Groq AI
-engine = ScreeningAgentEngine(api_key=groq_api_key, base_url=groq_base_url, model=groq_model)
+# Initialize Engine with Groq AI (using persistent API key)
+engine = ScreeningAgentEngine()
+
 
 # Initialize Session State
 if "candidate_pool" not in st.session_state:

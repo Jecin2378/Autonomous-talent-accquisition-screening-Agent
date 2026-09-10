@@ -50,6 +50,8 @@ class GroqClient:
         self.base_url = (base_url or os.getenv("GROQ_BASE_URL") or self.DEFAULT_BASE_URL).rstrip("/")
         self.model = model or os.getenv("GROQ_MODEL") or self.DEFAULT_MODEL
 
+
+
     def is_configured(self) -> bool:
         """Returns True if an API key is configured."""
         return bool(self.api_key and self.api_key.startswith("gsk_"))
