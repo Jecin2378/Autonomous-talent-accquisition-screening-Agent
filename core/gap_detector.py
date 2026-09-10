@@ -9,7 +9,7 @@ class PoolGapDetector:
     @classmethod
     def analyze_pool_gaps(cls, requisition: JobRequisition, results: List[EvaluationResult]) -> PoolGapReport:
         total_candidates = len(results)
-        if total_candidates == 0:
+        if total_candidates ==0:
             return PoolGapReport(
                 job_id=requisition.id,
                 job_title=requisition.title,
