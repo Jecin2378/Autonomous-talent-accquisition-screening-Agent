@@ -81,7 +81,12 @@ class TradeoffAnalyzer:
             keyword_spam_penalty=round(spam_penalty, 1)
         )
 
-        # 7. Trade-off Analysis & Contradiction Rationale
+        # 7. Project-to-Skill Verification & GitHub Code Audit
+        from core.project_verifier import ProjectVerifier
+        project_verifications = ProjectVerifier.verify_skills_against_projects(verified_candidate, requisition)
+        github_audit = ProjectVerifier.verify_github_projects(verified_candidate, [c.skill_name for c in verified_candidate.claims])
+
+        # 8. Trade-off Analysis & Contradiction Rationale
         strengths = []
         trade_off_risks = []
 
@@ -89,6 +94,25 @@ class TradeoffAnalyzer:
             strengths.append("Satisfies 100% of mandatory role requirements with verified proof.")
         else:
             trade_off_risks.append(f"Missing {len(missing_must_haves)} mandatory requirement(s): {', '.join(missing_must_haves)}.")
+
+        # Project backing strengths & risks
+        project_backed_count = sum(1 for p in project_verifications if p.is_project_backed)
+        if project_backed_count > 0:
+            strengths.append(f"Hands-On Project Evidence: {project_backed_count} skill(s) corroborated by concrete project deliverables.")
+
+        unbacked_must_haves = [
+            p.skill_name for p in project_verifications
+            if not p.is_project_backed and any(r.title.lower() == p.skill_name.lower() for r in must_haves)
+        ]
+        if unbacked_must_haves:
+            trade_off_risks.append(f"Unbacked Project Claims: Mandatory skill(s) [{', '.join(unbacked_must_haves)}] lack concrete project backing.")
+
+        # GitHub audit strengths & risks
+        if github_audit and github_audit.is_verified:
+            sub_skills = ", ".join(github_audit.skills_substantiated[:4])
+            strengths.append(f"GitHub Code Corroborated: {len(github_audit.repos)} public repo(s) substantiating [{sub_skills}].")
+        elif candidate.repository_links:
+            trade_off_risks.append("GitHub Audit: Repository links present but repositories could not corroborate claimed skills.")
 
         if evidence_density >= 85.0:
             strengths.append(f"High evidence density ({evidence_density}%): backed by metrics, tenure, or repo code.")
@@ -109,7 +133,8 @@ class TradeoffAnalyzer:
             f"{candidate.full_name} scores {final_overall}/100. "
             f"Satisfies {len(satisfied_must_haves)}/{len(must_haves)} Must-Haves. "
             f"{len(contradictions)} contradiction flag(s) detected. "
-            f"{len(evidence_ledger)} Evidence Ledger entry(ies) recorded."
+            f"{project_backed_count} project-backed skill(s). "
+            f"{'GitHub verified.' if (github_audit and github_audit.is_verified) else 'No GitHub code verification.'}"
         )
 
         tradeoff_obj = CandidateTradeoff(
@@ -147,5 +172,7 @@ class TradeoffAnalyzer:
             contradictions=contradictions,
             evidence_ledger=evidence_ledger,
             tradeoff=tradeoff_obj,
-            explainable_rationale=explainable_rationale
+            explainable_rationale=explainable_rationale,
+            project_verifications=project_verifications,
+            github_audit=github_audit
         )

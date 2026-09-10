@@ -30,25 +30,23 @@ class DocumentParser:
                 return f.read()
 
     @staticmethod
+    def _clean_text(text: str) -> str:
+        """Normalizes extracted text, fixing excessive single-word newlines and whitespace."""
+        if not text:
+            return ""
+        # Fix vertical-text / word-per-line artifact (e.g. "WORD \n NEXT")
+        text = re.sub(r'(\b\w+\b)\s*\n\s*(\b\w+\b)', r'\1 \2', text)
+        # Normalize multiple spaces and multiple blank lines
+        text = re.sub(r'[ \t]+', ' ', text)
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        return text.strip()
+
+    @staticmethod
     def extract_text_from_bytes(content: bytes, filename: str) -> str:
         """Extract text from in-memory file bytes (PDF or TXT)."""
         ext = os.path.splitext(filename)[1].lower()
         if ext == ".pdf":
-            # 1. Try pypdf
-            if pypdf is not None:
-                import io
-                try:
-                    reader = pypdf.PdfReader(io.BytesIO(content))
-                    text = ""
-                    for page in reader.pages:
-                        extracted = page.extract_text()
-                        if extracted:
-                            text += extracted + "\n"
-                    if text.strip():
-                        return text
-                except Exception:
-                    pass
-            # 2. Try pypdfium2
+            # 1. Try pypdfium2 first for superior layout preservation
             if pypdfium2 is not None:
                 try:
                     pdf = pypdfium2.PdfDocument(content)
@@ -59,30 +57,33 @@ class DocumentParser:
                         if extracted:
                             text += extracted + "\n"
                     if text.strip():
-                        return text
+                        return text.strip()
                 except Exception:
                     pass
-            return re.sub(rb'[^\x20-\x7E\n\r\t]', b' ', content).decode('ascii', errors='ignore')
+
+            # 2. Try pypdf
+            if pypdf is not None:
+                import io
+                try:
+                    reader = pypdf.PdfReader(io.BytesIO(content))
+                    text = ""
+                    for page in reader.pages:
+                        extracted = page.extract_text()
+                        if extracted:
+                            text += extracted + "\n"
+                    if text.strip():
+                        return DocumentParser._clean_text(text)
+                except Exception:
+                    pass
+
+            raw_ascii = re.sub(rb'[^\x20-\x7E\n\r\t]', b' ', content).decode('ascii', errors='ignore')
+            return DocumentParser._clean_text(raw_ascii)
         else:
-            return content.decode("utf-8", errors="ignore")
+            return content.decode("utf-8", errors="ignore").strip()
 
     @staticmethod
     def _parse_pdf(file_path: str) -> str:
-        text = ""
-        # 1. Try pypdf
-        if pypdf is not None:
-            try:
-                reader = pypdf.PdfReader(file_path)
-                for page in reader.pages:
-                    extracted = page.extract_text()
-                    if extracted:
-                        text += extracted + "\n"
-                if text.strip():
-                    return text
-            except Exception as e:
-                print(f"[Warning] pypdf failed: {e}. Trying fallback.")
-
-        # 2. Try pypdfium2
+        # 1. Try pypdfium2 first
         if pypdfium2 is not None:
             try:
                 pdf = pypdfium2.PdfDocument(file_path)
@@ -93,15 +94,29 @@ class DocumentParser:
                     if extracted:
                         text += extracted + "\n"
                 if text.strip():
-                    return text
+                    return text.strip()
             except Exception as e:
-                print(f"[Warning] pypdfium2 failed: {e}. Trying raw fallback.")
+                print(f"[Warning] pypdfium2 failed: {e}. Trying fallback.")
+
+        # 2. Try pypdf
+        if pypdf is not None:
+            try:
+                reader = pypdf.PdfReader(file_path)
+                text = ""
+                for page in reader.pages:
+                    extracted = page.extract_text()
+                    if extracted:
+                        text += extracted + "\n"
+                if text.strip():
+                    return DocumentParser._clean_text(text)
+            except Exception as e:
+                print(f"[Warning] pypdf failed: {e}. Trying raw fallback.")
 
         # 3. Fallback reading
         with open(file_path, "rb") as f:
             content = f.read()
-            text = re.sub(rb'[^\x20-\x7E\n\r\t]', b' ', content).decode('ascii', errors='ignore')
-        return text
+            raw_ascii = re.sub(rb'[^\x20-\x7E\n\r\t]', b' ', content).decode('ascii', errors='ignore')
+        return DocumentParser._clean_text(raw_ascii)
 
     @staticmethod
     def extract_sections(text: str) -> Dict[str, str]:

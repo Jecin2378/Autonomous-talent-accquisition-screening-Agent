@@ -211,6 +211,34 @@ class EvidenceLedgerEntry(BaseModel):
     reasoning: str = ""
 
 
+class ProjectVerificationItem(BaseModel):
+    skill_name: str
+    project_title: str
+    proof_snippet: str
+    is_project_backed: bool = True
+    metric_impact: Optional[str] = None
+    confidence_score: float = 0.90
+
+
+class GitHubRepoItem(BaseModel):
+    repo_name: str
+    repo_url: str
+    description: Optional[str] = ""
+    primary_language: Optional[str] = ""
+    topics: List[str] = Field(default_factory=list)
+    matched_skills: List[str] = Field(default_factory=list)
+
+
+class GitHubProjectAudit(BaseModel):
+    github_url: str
+    username: str
+    is_verified: bool = False
+    repos: List[GitHubRepoItem] = Field(default_factory=list)
+    skills_substantiated: List[str] = Field(default_factory=list)
+    skills_unsubstantiated: List[str] = Field(default_factory=list)
+    audit_verdict: str = ""
+
+
 class CandidateTradeoff(BaseModel):
     candidate_id: str
     candidate_name: str
@@ -231,6 +259,8 @@ class EvaluationResult(BaseModel):
     evidence_ledger: List[EvidenceLedgerEntry] = Field(default_factory=list)
     tradeoff: CandidateTradeoff
     explainable_rationale: str
+    project_verifications: List[ProjectVerificationItem] = Field(default_factory=list)
+    github_audit: Optional[GitHubProjectAudit] = None
 
 
 class PoolGapReport(BaseModel):
@@ -308,6 +338,8 @@ class ShortlistCandidate(BaseModel):
     preferred_criteria_total: int = 0
     overall_assessment: str = ""
     secondary_score: Optional[float] = None
+    project_verifications: List[ProjectVerificationItem] = Field(default_factory=list)
+    github_audit: Optional[GitHubProjectAudit] = None
 
 
 class RequisitionAnalysisReport(BaseModel):
