@@ -145,12 +145,69 @@ with st.sidebar:
     search_query = st.text_input("Search Candidate Name / Skill", "")
     filter_mode = st.radio("Segment Filter", ["All Candidates", "Closest Fit Candidates", "Has Contradictions", "Spam Penalized"], index=0)
 
+    st.markdown("---")
+    st.markdown("### 🗂️ Candidate Pool")
+    pool_count = len(st.session_state.get("candidate_pool", []))
+    st.markdown(f"**Live Resumes in Pool**: `{pool_count}`")
+    if st.button("🗑️ Clear Active Pool", key="btn_clear_sidebar"):
+        st.session_state.candidate_pool = []
+        st.session_state.uploaded_candidates = {}
+        st.session_state.processed_files = set()
+        st.rerun()
+    if st.button("🧪 Load Sample Candidates (Demo)", key="btn_load_demo_sidebar"):
+        demo_cands = get_sample_candidates()
+        if "uploaded_candidates" not in st.session_state:
+            st.session_state.uploaded_candidates = {}
+        for c in demo_cands:
+            st.session_state.uploaded_candidates[f"demo_{c.id}"] = c
+        st.session_state.candidate_pool = list(st.session_state.uploaded_candidates.values())
+        st.rerun()
+
 # Initialize Engine with Groq AI
 engine = ScreeningAgentEngine(api_key=groq_api_key, base_url=groq_base_url, model=groq_model)
 
-# Initialize or Retrieve Candidates in Session
+# Initialize Session State
 if "candidate_pool" not in st.session_state:
-    st.session_state.candidate_pool = get_sample_candidates()
+    st.session_state.candidate_pool = []
+if "uploaded_candidates" not in st.session_state:
+    st.session_state.uploaded_candidates = {}
+if "processed_files" not in st.session_state:
+    st.session_state.processed_files = set()
+
+# Automatically sync resumes from Live Resume Parser
+raw_uploaded = st.session_state.get("resume_uploader")
+if raw_uploaded:
+    current_keys = set()
+    new_resumes = []
+    for up_file in raw_uploaded:
+        f_bytes = up_file.getvalue()
+        f_key = f"{up_file.name}_{len(f_bytes)}"
+        current_keys.add(f_key)
+        if f_key not in st.session_state.uploaded_candidates:
+            new_resumes.append((up_file, f_bytes, f_key))
+
+    for up_file, f_bytes, f_key in new_resumes:
+        raw_text = DocumentParser.extract_text_from_bytes(f_bytes, up_file.name)
+        name_hint = up_file.name.rsplit(".", 1)[0].replace("_", " ").title()
+        new_profile = engine.groq_client.extract_candidate_profile(
+            raw_text=raw_text,
+            candidate_name=name_hint,
+            requisition=active_req
+        )
+        st.session_state.uploaded_candidates[f_key] = new_profile
+        st.session_state.processed_files.add(f_key)
+
+    # Prune any uploaded files that user removed in the uploader widget
+    for k in list(st.session_state.uploaded_candidates.keys()):
+        if not k.startswith("demo_") and k not in current_keys:
+            del st.session_state.uploaded_candidates[k]
+            st.session_state.processed_files.discard(k)
+
+    st.session_state.candidate_pool = list(st.session_state.uploaded_candidates.values())
+elif not any(k.startswith("demo_") for k in st.session_state.uploaded_candidates.keys()):
+    st.session_state.candidate_pool = []
+    st.session_state.uploaded_candidates = {}
+    st.session_state.processed_files = set()
 
 candidates: List[CandidateProfile] = st.session_state.candidate_pool
 
@@ -193,7 +250,7 @@ with kpi_col3:
     """, unsafe_allow_html=True)
 
 with kpi_col4:
-    avg_evidence = round(sum(r.score.evidence_density_score for r in eval_results) / max(len(eval_results), 1), 1)
+    avg_evidence = round(sum(r.score.evidence_density_score for r in eval_results) / max(len(eval_results), 1), 1) if eval_results else 0.0
     st.markdown(f"""
     <div class="kpi-card">
         <div class="kpi-label">Avg Evidence Density</div>
@@ -203,7 +260,14 @@ with kpi_col4:
 
 # Requisition Satisfaction Alert Banner
 st.markdown("<br>", unsafe_allow_html=True)
-if report.has_full_satisfaction:
+if len(candidates) == 0:
+    st.markdown("""
+    <div class="verdict-box-yellow" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.4); border-radius: 12px; padding: 16px 20px;">
+        <h4 style="margin:0; color:#60a5fa;">📄 Live Screening Ready — No Resumes Uploaded</h4>
+        <p style="margin:4px 0 0 0; color:#cbd5e1;">Upload candidate resumes (PDF or TXT) in the <strong>Live Resume Parser</strong> tab below to automatically generate the Closest-Fit Shortlist, Candidate Matrix, Coverage & Pool Gaps, and Forensic Evidence Ledger.</p>
+    </div>
+    """, unsafe_allow_html=True)
+elif report.has_full_satisfaction:
     st.markdown(f"""
     <div class="verdict-box-green">
         <h4 style="margin:0; color:#34d399;">✅ Full Requirement Satisfaction Achieved</h4>
@@ -243,77 +307,88 @@ with tab_shortlist:
     st.markdown("### 🏆 Candidate Shortlist & Trade-Off Analysis")
     st.caption("Candidates evaluated along multiple dimensions: required criteria met, trade-off severity, and evidence confidence.")
 
-    # Filter shortlist
-    filtered_shortlist = report.shortlist
-    if search_query:
-        filtered_shortlist = [c for c in filtered_shortlist if search_query.lower() in c.candidate_name.lower()]
-    
-    if filter_mode == "Closest Fit Candidates":
-        filtered_shortlist = [c for c in filtered_shortlist if c.required_criteria_met >= max(1, c.required_criteria_total - 1)]
-    elif filter_mode == "Has Contradictions":
-        filtered_shortlist = [c for c in filtered_shortlist if len(c.contradictions) > 0]
-    elif filter_mode == "Spam Penalized":
-        filtered_shortlist = [c for c in filtered_shortlist if len(c.unsupported_claims) > 0]
+    if not candidates:
+        st.markdown("""
+        <div style="background: rgba(30, 41, 59, 0.6); border: 1px dashed rgba(148, 163, 184, 0.3); border-radius: 12px; padding: 36px 24px; text-align: center; margin: 20px 0;">
+            <div style="font-size: 40px; margin-bottom: 12px;">🏆</div>
+            <h3 style="margin:0 0 8px 0; color:#f8fafc;">No Candidates in Shortlist Yet</h3>
+            <p style="color:#94a3b8; max-width: 600px; margin: 0 auto 16px auto;">
+                Upload candidate resumes via the <strong>Live Resume Parser</strong> tab to instantly rank candidates, analyze trade-offs, and inspect verified evidence snippets.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        # Filter shortlist
+        filtered_shortlist = report.shortlist
+        if search_query:
+            filtered_shortlist = [c for c in filtered_shortlist if search_query.lower() in c.candidate_name.lower()]
+        
+        if filter_mode == "Closest Fit Candidates":
+            filtered_shortlist = [c for c in filtered_shortlist if c.required_criteria_met >= max(1, c.required_criteria_total - 1)]
+        elif filter_mode == "Has Contradictions":
+            filtered_shortlist = [c for c in filtered_shortlist if len(c.contradictions) > 0]
+        elif filter_mode == "Spam Penalized":
+            filtered_shortlist = [c for c in filtered_shortlist if len(c.unsupported_claims) > 0]
 
-    for cand in filtered_shortlist:
-        with st.container():
-            col_head, col_score = st.columns([3, 1])
-            with col_head:
-                st.markdown(f"#### #{cand.rank} {cand.candidate_name}")
-                st.markdown(f"**Assessment**: *{cand.overall_assessment}*")
-            with col_score:
-                conf_badge = "badge-pass" if cand.evidence_confidence == "High" else ("badge-unsupported" if cand.evidence_confidence == "Moderate" else "badge-contradictory")
-                st.markdown(f'<span class="badge {conf_badge}">Confidence: {cand.evidence_confidence}</span> <span class="score-pill">Score: {cand.secondary_score}/100</span>', unsafe_allow_html=True)
-                st.markdown(f"**Required**: `{cand.required_criteria_met}/{cand.required_criteria_total}` | **Preferred**: `{cand.preferred_criteria_met}/{cand.preferred_criteria_total}`")
+        for cand in filtered_shortlist:
+            with st.container():
+                col_head, col_score = st.columns([3, 1])
+                with col_head:
+                    st.markdown(f"#### #{cand.rank} {cand.candidate_name}")
+                    st.markdown(f"**Assessment**: *{cand.overall_assessment}*")
+                with col_score:
+                    conf_badge = "badge-pass" if cand.evidence_confidence == "High" else ("badge-unsupported" if cand.evidence_confidence == "Moderate" else "badge-contradictory")
+                    st.markdown(f'<span class="badge {conf_badge}">Confidence: {cand.evidence_confidence}</span> <span class="score-pill">Score: {cand.secondary_score}/100</span>', unsafe_allow_html=True)
+                    st.markdown(f"**Required**: `{cand.required_criteria_met}/{cand.required_criteria_total}` | **Preferred**: `{cand.preferred_criteria_met}/{cand.preferred_criteria_total}`")
 
-            # Two Column Strengths vs Trade-Offs
-            col_str, col_trd = st.columns(2)
-            with col_str:
-                st.markdown("**💪 Key Strengths & Verified Criteria**")
-                for s in cand.strengths:
-                    st.markdown(f"- ✅ {s}")
-                if not cand.strengths:
-                    st.markdown("- *No verified strengths recorded.*")
+                # Two Column Strengths vs Trade-Offs
+                col_str, col_trd = st.columns(2)
+                with col_str:
+                    st.markdown("**💪 Key Strengths & Verified Criteria**")
+                    for s in cand.strengths:
+                        st.markdown(f"- ✅ {s}")
+                    if not cand.strengths:
+                        st.markdown("- *No verified strengths recorded.*")
 
-            with col_trd:
-                st.markdown("**⚖️ Trade-Offs & Gaps**")
-                for t in cand.tradeoffs:
-                    st.markdown(f"- ⚠️ {t}")
-                for u in cand.unmet_requirements:
-                    st.markdown(f"- ❌ **Unmet**: {u}")
-                for contra in cand.contradictions:
-                    st.markdown(f"- 🚨 **Contradiction**: {contra}")
-                for unsup in cand.unsupported_claims:
-                    st.markdown(f"- ⚠️ **Unverified Claim**: {unsup}")
+                with col_trd:
+                    st.markdown("**⚖️ Trade-Offs & Gaps**")
+                    for t in cand.tradeoffs:
+                        st.markdown(f"- ⚠️ {t}")
+                    for u in cand.unmet_requirements:
+                        st.markdown(f"- ❌ **Unmet**: {u}")
+                    for contra in cand.contradictions:
+                        st.markdown(f"- 🚨 **Contradiction**: {contra}")
+                    for unsup in cand.unsupported_claims:
+                        st.markdown(f"- ⚠️ **Unverified Claim**: {unsup}")
 
-            # Expandable Evidence Drawer
-            with st.expander(f"🔍 Inspect Evidence & Proof Snippets for {cand.candidate_name}"):
-                c_prof = next((cp for cp in candidates if cp.id == cand.candidate_id), None)
-                if c_prof and c_prof.claims:
-                    for clm in c_prof.claims:
-                        v_icon = "✅" if clm.is_verified else "⚠️"
-                        st.markdown(f"**{v_icon} {clm.skill_name}** ({clm.claimed_years} yrs claimed)")
-                        if clm.verification_notes:
-                            st.caption(clm.verification_notes)
-                        for ev in clm.evidence_list:
-                            st.markdown(f"> *[{ev.type.value}]* {ev.proof_snippet} `(confidence: {ev.confidence_score})`")
-                elif c_prof:
-                    st.text(c_prof.raw_resume_text[:400] + "...")
+                # Expandable Evidence Drawer
+                with st.expander(f"🔍 Inspect Evidence & Proof Snippets for {cand.candidate_name}"):
+                    c_prof = next((cp for cp in candidates if cp.id == cand.candidate_id), None)
+                    if c_prof and c_prof.claims:
+                        for clm in c_prof.claims:
+                            v_icon = "✅" if clm.is_verified else "⚠️"
+                            st.markdown(f"**{v_icon} {clm.skill_name}** ({clm.claimed_years} yrs claimed)")
+                            if clm.verification_notes:
+                                st.caption(clm.verification_notes)
+                            for ev in clm.evidence_list:
+                                st.markdown(f"> *[{ev.type.value}]* {ev.proof_snippet} `(confidence: {ev.confidence_score})`")
+                    elif c_prof:
+                        st.text(c_prof.raw_resume_text[:400] + "...")
 
-            st.divider()
+                st.divider()
 
-    # Download Shortlist Report
-    shortlist_export = {
-        "job_title": active_req.title,
-        "satisfaction_verdict": report.satisfaction_verdict,
-        "candidates": [c.model_dump() for c in report.shortlist]
-    }
-    st.download_button(
-        label="📥 Export Shortlist Report (JSON)",
-        data=json.dumps(shortlist_export, indent=2),
-        file_name=f"shortlist_{active_req.id.lower()}.json",
-        mime="application/json"
-    )
+        # Download Shortlist Report
+        shortlist_export = {
+            "job_title": active_req.title,
+            "satisfaction_verdict": report.satisfaction_verdict,
+            "candidates": [c.model_dump() for c in report.shortlist]
+        }
+        st.download_button(
+            label="📥 Export Shortlist Report (JSON)",
+            data=json.dumps(shortlist_export, indent=2),
+            file_name=f"shortlist_{active_req.id.lower()}.json",
+            mime="application/json"
+        )
 
 # -------------------------------------------------------------
 # TAB 2: CANDIDATE REQUIREMENT MATRIX
@@ -322,35 +397,46 @@ with tab_matrix:
     st.markdown("### 🧩 Candidate Requirement Matrix")
     st.caption("Deterministic evaluation states: PASS, PARTIAL, FAIL, UNKNOWN, UNSUPPORTED, CONTRADICTORY.")
 
-    matrix_rows_data = []
-    for row in report.matrix_rows:
-        r_dict = {
-            "Candidate": row.candidate_name,
-            "Must-Haves": f"{row.required_satisfied}/{row.required_total}",
-            "Preferred": f"{row.preferred_satisfied}/{row.preferred_total}",
-            "Full Match": "✅ YES" if row.satisfies_all_required else "❌ NO"
-        }
-        for cell in row.cell_details:
-            r_dict[cell.requirement_title] = cell.status.value
-        matrix_rows_data.append(r_dict)
+    if not candidates:
+        st.markdown("""
+        <div style="background: rgba(30, 41, 59, 0.6); border: 1px dashed rgba(148, 163, 184, 0.3); border-radius: 12px; padding: 36px 24px; text-align: center; margin: 20px 0;">
+            <div style="font-size: 40px; margin-bottom: 12px;">🧩</div>
+            <h3 style="margin:0 0 8px 0; color:#f8fafc;">Candidate Matrix Empty</h3>
+            <p style="color:#94a3b8; max-width: 600px; margin: 0 auto;">
+                Drop resumes into the <strong>Live Resume Parser</strong> tab to generate requirement-by-requirement deterministic evaluations (PASS, PARTIAL, FAIL, UNSUPPORTED).
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        matrix_rows_data = []
+        for row in report.matrix_rows:
+            r_dict = {
+                "Candidate": row.candidate_name,
+                "Must-Haves": f"{row.required_satisfied}/{row.required_total}",
+                "Preferred": f"{row.preferred_satisfied}/{row.preferred_total}",
+                "Full Match": "✅ YES" if row.satisfies_all_required else "❌ NO"
+            }
+            for cell in row.cell_details:
+                r_dict[cell.requirement_title] = cell.status.value
+            matrix_rows_data.append(r_dict)
 
-    df_matrix = pd.DataFrame(matrix_rows_data)
-    st.dataframe(df_matrix, use_container_width=True)
+        df_matrix = pd.DataFrame(matrix_rows_data)
+        st.dataframe(df_matrix, use_container_width=True)
 
-    # Detailed Cell Inspector
-    st.markdown("#### 🔬 Detailed Matrix Cell Inspector")
-    sel_cand = st.selectbox("Select Candidate to Inspect", options=[r.candidate_name for r in report.matrix_rows])
-    sel_row = next((r for r in report.matrix_rows if r.candidate_name == sel_cand), None)
-    if sel_row:
-        cell_table = []
-        for cell in sel_row.cell_details:
-            cell_table.append({
-                "Requirement": cell.requirement_title,
-                "Type": "MUST HAVE" if cell.is_must_have else "PREFERRED",
-                "Evaluation State": cell.status.value,
-                "Deterministic Reason / Proof": cell.reason
-            })
-        st.dataframe(pd.DataFrame(cell_table), use_container_width=True)
+        # Detailed Cell Inspector
+        st.markdown("#### 🔬 Detailed Matrix Cell Inspector")
+        sel_cand = st.selectbox("Select Candidate to Inspect", options=[r.candidate_name for r in report.matrix_rows])
+        sel_row = next((r for r in report.matrix_rows if r.candidate_name == sel_cand), None)
+        if sel_row:
+            cell_table = []
+            for cell in sel_row.cell_details:
+                cell_table.append({
+                    "Requirement": cell.requirement_title,
+                    "Type": "MUST HAVE" if cell.is_must_have else "PREFERRED",
+                    "Evaluation State": cell.status.value,
+                    "Deterministic Reason / Proof": cell.reason
+                })
+            st.dataframe(pd.DataFrame(cell_table), use_container_width=True)
 
 # -------------------------------------------------------------
 # TAB 3: COVERAGE & POOL GAPS
@@ -358,39 +444,50 @@ with tab_matrix:
 with tab_coverage:
     st.markdown("### 📊 Requirement Coverage & Pool Restrictiveness")
     
-    c1_cov, c2_cov = st.columns([1, 1])
-    with c1_cov:
-        st.markdown("#### Individual Criteria Coverage")
-        cov_table = []
-        for item in report.coverage_items:
-            cov_table.append({
-                "Requirement": item.title,
-                "Required": "YES" if item.is_required else "NO",
-                "Candidates Meeting": f"{item.satisfied_count} / {item.total_candidates}",
-                "Coverage": f"{item.coverage_pct}%",
-                "Status": item.status
-            })
-        st.dataframe(pd.DataFrame(cov_table), use_container_width=True)
+    if not candidates:
+        st.markdown("""
+        <div style="background: rgba(30, 41, 59, 0.6); border: 1px dashed rgba(148, 163, 184, 0.3); border-radius: 12px; padding: 36px 24px; text-align: center; margin: 20px 0;">
+            <div style="font-size: 40px; margin-bottom: 12px;">📊</div>
+            <h3 style="margin:0 0 8px 0; color:#f8fafc;">Pool Coverage & Gaps Empty</h3>
+            <p style="color:#94a3b8; max-width: 600px; margin: 0 auto;">
+                Upload candidate resumes via the <strong>Live Resume Parser</strong> tab to calculate requirement coverage, restrictive intersections, and pool gap recommendations.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        c1_cov, c2_cov = st.columns([1, 1])
+        with c1_cov:
+            st.markdown("#### Individual Criteria Coverage")
+            cov_table = []
+            for item in report.coverage_items:
+                cov_table.append({
+                    "Requirement": item.title,
+                    "Required": "YES" if item.is_required else "NO",
+                    "Candidates Meeting": f"{item.satisfied_count} / {item.total_candidates}",
+                    "Coverage": f"{item.coverage_pct}%",
+                    "Status": item.status
+                })
+            st.dataframe(pd.DataFrame(cov_table), use_container_width=True)
 
-    with c2_cov:
-        st.markdown("#### Restrictive Intersections (Combined Criteria)")
-        inter_table = []
-        for item in report.intersection_items:
-            inter_table.append({
-                "Requirement Intersection": item.combination_name,
-                "Coverage": f"{item.satisfied_count}/{item.total_candidates} ({item.coverage_pct}%)",
-                "Restrictive": "YES" if item.is_restrictive else "NO",
-                "Notes": item.notes
-            })
-        st.dataframe(pd.DataFrame(inter_table), use_container_width=True)
+        with c2_cov:
+            st.markdown("#### Restrictive Intersections (Combined Criteria)")
+            inter_table = []
+            for item in report.intersection_items:
+                inter_table.append({
+                    "Requirement Intersection": item.combination_name,
+                    "Coverage": f"{item.satisfied_count}/{item.total_candidates} ({item.coverage_pct}%)",
+                    "Restrictive": "YES" if item.is_restrictive else "NO",
+                    "Notes": item.notes
+                })
+            st.dataframe(pd.DataFrame(inter_table), use_container_width=True)
 
-    # Pool Gap Report & Recommendations
-    st.markdown("---")
-    st.markdown("#### 📋 Pool Gap Analysis & Recruiter Actionable Advice")
-    pool_report = engine.generate_pool_report(active_req, eval_results)
-    st.info(f"**Gap Summary**: {pool_report.gap_analysis_summary}")
-    for rec in pool_report.recruiter_actionable_recommendations:
-        st.markdown(f"- 💡 **Recommendation**: {rec}")
+        # Pool Gap Report & Recommendations
+        st.markdown("---")
+        st.markdown("#### 📋 Pool Gap Analysis & Recruiter Actionable Advice")
+        pool_report = engine.generate_pool_report(active_req, eval_results)
+        st.info(f"**Gap Summary**: {pool_report.gap_analysis_summary}")
+        for rec in pool_report.recruiter_actionable_recommendations:
+            st.markdown(f"- 💡 **Recommendation**: {rec}")
 
 # -------------------------------------------------------------
 # TAB 4: EVIDENCE & CONTRADICTION LEDGER
@@ -399,32 +496,43 @@ with tab_ledger:
     st.markdown("### 🚨 Forensic Contradiction & Evidence Ledger")
     st.caption("Traceable verification mapping candidate claims to public evidence repositories and identity linkage.")
 
-    for cand_prof in candidates:
-        with st.expander(f"Candidate: {cand_prof.full_name} ({cand_prof.current_role})", expanded=False):
-            ledger = EvidenceLedgerBuilder.build_ledger(cand_prof)
-            res = next((r for r in eval_results if r.candidate_id == cand_prof.id), None)
-            
-            # Contradictions
-            if res and res.contradictions:
-                st.markdown("##### 🚨 Contradiction & Unsupported Flags")
-                for c in res.contradictions:
-                    st.error(f"**{c.flag}** ({c.type.value})\n- **Claim**: {c.claim}\n- **Assessment**: {c.assessment}")
-            else:
-                st.success("Zero contradiction flags detected for this candidate.")
+    if not candidates:
+        st.markdown("""
+        <div style="background: rgba(30, 41, 59, 0.6); border: 1px dashed rgba(148, 163, 184, 0.3); border-radius: 12px; padding: 36px 24px; text-align: center; margin: 20px 0;">
+            <div style="font-size: 40px; margin-bottom: 12px;">🚨</div>
+            <h3 style="margin:0 0 8px 0; color:#f8fafc;">Evidence & Contradiction Ledger Empty</h3>
+            <p style="color:#94a3b8; max-width: 600px; margin: 0 auto;">
+                Upload candidate resumes via the <strong>Live Resume Parser</strong> tab to audit claims against external evidence repositories and detect timeline/skill contradictions.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        for cand_prof in candidates:
+            with st.expander(f"Candidate: {cand_prof.full_name} ({cand_prof.current_role})", expanded=False):
+                ledger = EvidenceLedgerBuilder.build_ledger(cand_prof)
+                res = next((r for r in eval_results if r.candidate_id == cand_prof.id), None)
+                
+                # Contradictions
+                if res and res.contradictions:
+                    st.markdown("##### 🚨 Contradiction & Unsupported Flags")
+                    for c in res.contradictions:
+                        st.error(f"**{c.flag}** ({c.type.value})\n- **Claim**: {c.claim}\n- **Assessment**: {c.assessment}")
+                else:
+                    st.success("Zero contradiction flags detected for this candidate.")
 
-            # Evidence Ledger
-            st.markdown("##### 📑 Traceable Evidence Ledger Entries")
-            ledger_table = []
-            for entry in ledger:
-                ledger_table.append({
-                    "Claim": entry.claim,
-                    "Assessment State": entry.assessment.value,
-                    "Confidence": entry.confidence,
-                    "Identity Status": entry.identity_linkage.status.value,
-                    "Sources Linked": len(entry.sources),
-                    "Reasoning": entry.reasoning
-                })
-            st.dataframe(pd.DataFrame(ledger_table), use_container_width=True)
+                # Evidence Ledger
+                st.markdown("##### 📑 Traceable Evidence Ledger Entries")
+                ledger_table = []
+                for entry in ledger:
+                    ledger_table.append({
+                        "Claim": entry.claim,
+                        "Assessment State": entry.assessment.value,
+                        "Confidence": entry.confidence,
+                        "Identity Status": entry.identity_linkage.status.value,
+                        "Sources Linked": len(entry.sources),
+                        "Reasoning": entry.reasoning
+                    })
+                st.dataframe(pd.DataFrame(ledger_table), use_container_width=True)
 
 # -------------------------------------------------------------
 # TAB 5: LIVE RESUME PARSER & UPLOAD SANDBOX
@@ -433,42 +541,50 @@ with tab_upload:
     st.markdown("### 📄 Live Resume Upload & AI-Powered Screener")
     st.caption("Upload raw PDF or TXT resumes. Groq AI (`openai/gpt-oss-120b`) extracts skills, evidence snippets, metrics, and timeline proof.")
 
+    c_stat1, c_stat2 = st.columns([3, 1])
+    with c_stat1:
+        if candidates:
+            st.success(f"🟢 **Active Screening Pool**: `{len(candidates)} candidate(s) loaded` — Synchronized with all dashboard tabs.")
+        else:
+            st.info("ℹ️ **Active Screening Pool**: `0 candidates loaded` — Drop resumes below to start screening.")
+    with c_stat2:
+        if st.button("🗑️ Clear All Resumes", key="btn_clear_tab_pool"):
+            st.session_state.candidate_pool = []
+            st.session_state.uploaded_candidates = {}
+            st.session_state.processed_files = set()
+            st.rerun()
+
     uploaded_files = st.file_uploader(
         "Drop Candidate Resumes Here (PDF or TXT)",
         type=["pdf", "txt"],
-        accept_multiple_files=True
+        accept_multiple_files=True,
+        key="resume_uploader"
     )
 
-    if uploaded_files:
-        st.info(f"Processing {len(uploaded_files)} candidate resume(s) with Groq AI...")
-        for up_file in uploaded_files:
-            file_bytes = up_file.read()
-            
-            with st.spinner(f"Extracting claims & evidence for `{up_file.name}` via Groq AI..."):
-                new_cand = engine.groq_client.extract_candidate_profile(
-                    raw_text=DocumentParser.extract_text_from_bytes(file_bytes, up_file.name),
-                    candidate_name=up_file.name.rsplit(".", 1)[0].replace("_", " ").title()
-                )
-                new_res = engine.evaluate_single_candidate(active_req, new_cand)
-            
+    if candidates:
+        st.markdown("---")
+        st.markdown("### 👥 Parsed Candidates in Active Screening Pool")
+        for cand in candidates:
+            c_res = next((r for r in eval_results if r.candidate_id == cand.id), None)
             with st.container():
-                st.markdown(f"#### 👤 {new_cand.full_name} (`{new_cand.current_role}`) - *{new_cand.years_of_experience} yrs exp*")
-                col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-                with col_m1:
-                    st.metric("Overall Score", f"{new_res.score.overall_score}/100")
-                with col_m2:
-                    st.metric("Evidence Density", f"{new_res.score.evidence_density_score}%")
-                with col_m3:
-                    st.metric("Requirement Match", f"{new_res.score.requirement_match_score}%")
-                with col_m4:
-                    st.metric("Spam Penalty", f"-{new_res.score.keyword_spam_penalty} pts")
+                st.markdown(f"#### 👤 {cand.full_name} (`{cand.current_role}`) - *{cand.years_of_experience} yrs exp*")
+                if c_res:
+                    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+                    with col_m1:
+                        st.metric("Overall Score", f"{c_res.score.overall_score}/100")
+                    with col_m2:
+                        st.metric("Evidence Density", f"{c_res.score.evidence_density_score}%")
+                    with col_m3:
+                        st.metric("Requirement Match", f"{c_res.score.requirement_match_score}%")
+                    with col_m4:
+                        st.metric("Spam Penalty", f"-{c_res.score.keyword_spam_penalty} pts")
 
-                st.markdown(f"**Verdict**: *{new_res.tradeoff.summary_verdict}*")
+                    st.markdown(f"**Verdict**: *{c_res.tradeoff.summary_verdict}*")
                 
                 # Show AI Extracted Claims
-                with st.expander("🔍 View AI-Extracted Claims & Proof Snippets", expanded=True):
-                    if new_cand.claims:
-                        for clm in new_cand.claims:
+                with st.expander(f"🔍 View AI-Extracted Claims & Proof Snippets ({len(cand.claims)} skills)", expanded=False):
+                    if cand.claims:
+                        for clm in cand.claims:
                             status_icon = "✅" if clm.is_verified else "⚠️"
                             badge_cls = "badge-pass" if clm.is_verified else "badge-unsupported"
                             st.markdown(f"**{status_icon} {clm.skill_name}** ({clm.claimed_years} yrs) - <span class='badge {badge_cls}'>{'Verified Proof' if clm.is_verified else 'Unverified Keyword'}</span>", unsafe_allow_html=True)
@@ -477,11 +593,15 @@ with tab_upload:
                     else:
                         st.caption("No claims extracted.")
 
-                # Action button to add candidate into the active pool
-                if st.button(f"➕ Add {new_cand.full_name} to Active Candidate Pool", key=f"btn_{new_cand.id}"):
-                    if not any(c.id == new_cand.id for c in st.session_state.candidate_pool):
-                        st.session_state.candidate_pool.append(new_cand)
-                        st.success(f"Added {new_cand.full_name} to candidate pool! Re-evaluating dashboard...")
+                # Action button to remove candidate individually
+                col_btn1, _ = st.columns([2, 5])
+                with col_btn1:
+                    if st.button(f"❌ Remove {cand.full_name}", key=f"del_{cand.id}"):
+                        st.session_state.candidate_pool = [c for c in st.session_state.candidate_pool if c.id != cand.id]
+                        for k, v in list(st.session_state.uploaded_candidates.items()):
+                            if v.id == cand.id:
+                                del st.session_state.uploaded_candidates[k]
+                                st.session_state.processed_files.discard(k)
                         st.rerun()
 
                 st.divider()

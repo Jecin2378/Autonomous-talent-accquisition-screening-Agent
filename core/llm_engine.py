@@ -33,14 +33,14 @@ class ScreeningAgentEngine:
     def evaluate_candidate_file(self, requisition: JobRequisition, file_path: str, candidate_name: str = "Applicant") -> EvaluationResult:
         """Parses a resume file (PDF/TXT) using Groq AI extraction and runs full evaluation."""
         text = DocumentParser.extract_text_from_file(file_path)
-        profile = self.groq_client.extract_candidate_profile(text, candidate_name=candidate_name)
+        profile = self.groq_client.extract_candidate_profile(text, candidate_name=candidate_name, requisition=requisition)
         return self.evaluate_single_candidate(requisition, profile)
 
     def evaluate_candidate_bytes(self, requisition: JobRequisition, file_bytes: bytes, filename: str) -> EvaluationResult:
         """Parses in-memory uploaded resume bytes using Groq AI and runs full evaluation."""
         text = DocumentParser.extract_text_from_bytes(file_bytes, filename)
         name_hint = filename.rsplit(".", 1)[0].replace("_", " ").title()
-        profile = self.groq_client.extract_candidate_profile(text, candidate_name=name_hint)
+        profile = self.groq_client.extract_candidate_profile(text, candidate_name=name_hint, requisition=requisition)
         return self.evaluate_single_candidate(requisition, profile)
 
     def evaluate_batch(self, requisition: JobRequisition, candidates: List[CandidateProfile]) -> List[EvaluationResult]:

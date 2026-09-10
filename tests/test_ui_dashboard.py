@@ -104,3 +104,48 @@ def test_eval4_groq_client_configuration_and_extraction():
     assert profile.full_name == "Jane Doe"
     assert profile.years_of_experience >= 3.0
     assert len(profile.repository_links) >= 1
+
+
+def test_eval4_empty_candidate_pool_handling():
+    """Verify that analyzing an empty candidate pool does not crash and returns safe defaults."""
+    req = get_sample_requisition()
+    engine = ScreeningAgentEngine()
+    
+    report = engine.analyze_requisition_and_shortlist(req, [])
+    assert len(report.shortlist) == 0
+    assert len(report.matrix_rows) == 0
+    assert report.has_full_satisfaction is False
+
+    eval_results = engine.evaluate_batch(req, [])
+    assert len(eval_results) == 0
+
+    pool_report = engine.generate_pool_report(req, eval_results)
+    assert pool_report.total_candidates_evaluated == 0
+
+
+def test_eval4_live_resume_parser_pdf_evaluation():
+    """Verify end-to-end evaluation using a live resume file (arjun_menon.pdf)."""
+    import os
+    pdf_path = os.path.join(os.path.dirname(__file__), "..", "data", "resumes", "arjun_menon.pdf")
+    assert os.path.exists(pdf_path)
+
+    req = get_sample_requisition()
+    engine = ScreeningAgentEngine()
+
+    eval_result = engine.evaluate_candidate_file(req, pdf_path, candidate_name="Arjun Menon")
+    assert eval_result.candidate_name == "Arjun Menon"
+    assert eval_result.score.overall_score > 0
+    assert len(eval_result.evidence_ledger) > 0
+
+    # Build shortlist with Arjun
+    candidate_profile = engine.groq_client.extract_candidate_profile(
+        DocumentParser.extract_text_from_file(pdf_path),
+        candidate_name="Arjun Menon",
+        requisition=req
+    )
+    report = engine.analyze_requisition_and_shortlist(req, [candidate_profile])
+    assert len(report.shortlist) == 1
+    assert report.shortlist[0].candidate_name == "Arjun Menon"
+    assert len(report.matrix_rows) == 1
+    assert report.matrix_rows[0].candidate_name == "Arjun Menon"
+

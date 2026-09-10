@@ -48,21 +48,36 @@ def test_e2e_01_dashboard_title_and_kpis(browser_page: Page):
 
 
 def test_e2e_02_satisfaction_verdict_banner(browser_page: Page):
-    """Corner 2: Verify requirement satisfaction banner."""
-    # For Senior AI Platform Engineer with 4 candidates, full satisfaction banner or shortage banner is visible
-    banner = browser_page.locator(".verdict-box-green, .verdict-box-red").first
+    """Corner 2: Verify requirement satisfaction or live screening ready banner."""
+    banner = browser_page.locator(".verdict-box-green, .verdict-box-red, .verdict-box-yellow").first
     expect(banner).to_be_visible()
 
 
-def test_e2e_03_tab1_closest_fit_shortlist(browser_page: Page):
-    """Corner 3: Verify Tab 1 Closest-Fit Shortlist renders candidate cards, strengths, trade-offs."""
+def test_e2e_03_tab5_live_resume_parser_upload(browser_page: Page):
+    """Corner 3: Verify Tab 5 Live Resume Upload & AI Screener Sandbox."""
+    # Click Tab 5
+    tab5 = browser_page.get_by_role("tab", name="📄 Live Resume Parser")
+    tab5.click()
+    time.sleep(1)
+
+    # Check uploader is present
+    expect(browser_page.locator("text=Drop Candidate Resumes Here").first).to_be_visible()
+
+    # Click the demo load button or upload to populate candidates for downstream tab testing
+    load_demo_btn = browser_page.locator("button:has-text('Load Sample Candidates (Demo)')").first
+    if load_demo_btn.is_visible():
+        load_demo_btn.click()
+        time.sleep(2)
+
+
+def test_e2e_04_tab1_closest_fit_shortlist(browser_page: Page):
+    """Corner 4: Verify Tab 1 Closest-Fit Shortlist renders candidate cards, strengths, trade-offs."""
     # Click Tab 1
     tab1 = browser_page.get_by_role("tab", name="🏆 Closest-Fit Shortlist")
     tab1.click()
     time.sleep(1)
 
-    # Check top candidate Alex Chen is displayed
-    expect(browser_page.locator("text=Alex Chen").first).to_be_visible()
+    # Check candidate card elements
     expect(browser_page.locator("text=Key Strengths").first).to_be_visible()
     expect(browser_page.locator("text=Trade-Offs").first).to_be_visible()
 
@@ -70,8 +85,8 @@ def test_e2e_03_tab1_closest_fit_shortlist(browser_page: Page):
     expect(browser_page.locator("text=Export Shortlist Report").first).to_be_visible()
 
 
-def test_e2e_04_tab2_candidate_matrix(browser_page: Page):
-    """Corner 4: Verify Tab 2 Candidate Requirement Matrix table and cell inspector."""
+def test_e2e_05_tab2_candidate_matrix(browser_page: Page):
+    """Corner 5: Verify Tab 2 Candidate Requirement Matrix table and cell inspector."""
     # Click Tab 2
     tab2 = browser_page.get_by_role("tab", name="🧩 Candidate Matrix")
     tab2.click()
@@ -83,8 +98,8 @@ def test_e2e_04_tab2_candidate_matrix(browser_page: Page):
     expect(browser_page.locator("text=Detailed Matrix Cell Inspector").first).to_be_visible()
 
 
-def test_e2e_05_tab3_coverage_and_pool_gaps(browser_page: Page):
-    """Corner 5: Verify Tab 3 Requirement Coverage, Restrictive Intersections, and Recruiter Advice."""
+def test_e2e_06_tab3_coverage_and_pool_gaps(browser_page: Page):
+    """Corner 6: Verify Tab 3 Requirement Coverage, Restrictive Intersections, and Recruiter Advice."""
     # Click Tab 3
     tab3 = browser_page.get_by_role("tab", name="📊 Coverage & Pool Gaps")
     tab3.click()
@@ -96,8 +111,8 @@ def test_e2e_05_tab3_coverage_and_pool_gaps(browser_page: Page):
     expect(browser_page.locator("text=Pool Gap Analysis").first).to_be_visible()
 
 
-def test_e2e_06_tab4_evidence_ledger(browser_page: Page):
-    """Corner 6: Verify Tab 4 Forensic Evidence Ledger and Contradiction Flags."""
+def test_e2e_07_tab4_evidence_ledger(browser_page: Page):
+    """Corner 7: Verify Tab 4 Forensic Evidence Ledger and Contradiction Flags."""
     # Click Tab 4
     tab4 = browser_page.get_by_role("tab", name="🚨 Evidence & Contradiction Ledger")
     tab4.click()
@@ -105,17 +120,6 @@ def test_e2e_06_tab4_evidence_ledger(browser_page: Page):
 
     # Check ledger heading
     expect(browser_page.locator("text=Forensic Contradiction & Evidence Ledger").first).to_be_visible()
-
-
-def test_e2e_07_tab5_live_resume_parser(browser_page: Page):
-    """Corner 7: Verify Tab 5 Live Resume Upload & AI Screener Sandbox."""
-    # Click Tab 5
-    tab5 = browser_page.get_by_role("tab", name="📄 Live Resume Parser")
-    tab5.click()
-    time.sleep(1)
-
-    # Check uploader is present
-    expect(browser_page.locator("text=Drop Candidate Resumes Here").first).to_be_visible()
 
 
 def test_e2e_08_sidebar_requisition_switching(browser_page: Page):
@@ -132,7 +136,8 @@ def test_e2e_08_sidebar_requisition_switching(browser_page: Page):
         opt.click()
         time.sleep(2)
         # Verify the conflicts banner appears for the Junior AI Associate role
-        expect(browser_page.locator("text=Detected Requisition Conflicts").first).to_be_visible(timeout=10000)
+        expect(browser_page.locator("text=Detected Internal Requisition Conflicts").first).to_be_visible(timeout=10000)
     else:
         # Close selectbox if already selected or click body
         browser_page.keyboard.press("Escape")
+
